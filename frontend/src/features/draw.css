@@ -1,0 +1,63 @@
+/* These cards are visual proxies for a single fixed shuffled session. */
+.riffle-table{width:520px;max-width:100%;height:330px;position:relative;margin:20px auto 8px;perspective:950px;overflow:hidden}
+.riffle-surface{position:absolute;inset:40px 0 20px;border:1px solid #ccb995;border-radius:50%;background:radial-gradient(ellipse,#d5c3a043,transparent 70%);transform:rotateX(48deg)}
+.riffle-deck{position:absolute;left:50%;top:60px;transform-style:preserve-3d;transform:rotateX(22deg)}
+.riffle-card{position:absolute;width:108px;height:180px;left:-54px;top:0;border:1px solid #ecd7a6;border-radius:5px;background:#ddc9a3;box-shadow:0 2px 1px #a18b68,0 10px 16px #5d442320;transform-origin:center bottom;backface-visibility:hidden;will-change:transform;animation-duration:3.05s;animation-fill-mode:both;animation-timing-function:ease-in-out;animation-delay:var(--riffle-delay)}
+.riffle-card img{width:100%;height:100%;object-fit:cover;border-radius:4px}
+.riffle-left{animation-name:riffle-left}
+.riffle-right{animation-name:riffle-right}
+@keyframes riffle-left{
+  0%,9%{transform:translate3d(-2px,calc(var(--layer)*-1.6px),calc(var(--layer)*1px)) rotate(-2deg)}
+  23%,35%{transform:translate3d(-105px,calc(var(--layer)*-2px),calc(var(--layer)*2px)) rotate(-15deg) rotateY(12deg)}
+  47%,57%{transform:translate3d(-10px,calc(var(--layer)*-2px),calc(var(--layer)*2px)) rotate(-3deg)}
+  69%{transform:translate3d(-8px,calc(-30px + var(--layer)*-1.8px),calc(30px + var(--layer)*3px)) rotateX(-30deg) rotate(-3deg)}
+  82%,100%{transform:translate3d(0,calc(var(--layer)*-1.4px),calc(var(--layer)*2px)) rotate(0)}
+}
+@keyframes riffle-right{
+  0%,9%{transform:translate3d(2px,calc(var(--layer)*-1.6px),calc(var(--layer)*1px)) rotate(2deg)}
+  23%,35%{transform:translate3d(105px,calc(var(--layer)*-2px),calc(var(--layer)*2px)) rotate(15deg) rotateY(-12deg)}
+  47%,57%{transform:translate3d(10px,calc(var(--layer)*-2px),calc(var(--layer)*2px + 1px)) rotate(3deg)}
+  69%{transform:translate3d(8px,calc(-30px + var(--layer)*-1.8px),calc(30px + var(--layer)*3px)) rotateX(-30deg) rotate(3deg)}
+  82%,100%{transform:translate3d(0,calc(var(--layer)*-1.4px),calc(var(--layer)*2px + 1px)) rotate(0)}
+}
+.shuffling-state h2{font-size:30px;margin-top:17px}
+.shuffle-stage{font-size:15px;color:#826c4d;min-height:30px}
+.shuffle-steps{display:flex;gap:9px;justify-content:center;margin:15px 0}
+.shuffle-steps span{height:3px;width:32px;border-radius:3px;background:#d8ccb5;transition:background .2s}
+.shuffle-steps span.active{background:#8a6a40}
+.selection-instruction{text-align:center;font-size:12px;color:#9c8567;margin:22px 0 0;line-height:1.8}
+.card-spread.full-deck{display:grid;grid-template-columns:repeat(13,minmax(0,1fr));gap:26px 14px;padding:36px 7px;max-width:1160px;margin:auto}
+.full-deck .back-card{width:100%;margin:0!important;border-radius:4px;aspect-ratio:3/5;min-height:44px;box-shadow:1px 4px 7px #6c482e1a}
+.full-deck .back-card img{height:100%;width:100%;aspect-ratio:3/5;object-fit:cover;filter:none;border:1px solid #a08458}
+.full-deck .back-card:hover:not(:disabled){transform:translateY(-5px) rotate(-1deg);filter:brightness(1.08)}
+.full-deck .back-card.chosen{transform:translateY(-7px)}
+.full-deck .back-card:disabled{opacity:.62}
+.full-deck .selection-number{top:-11px;width:24px;height:24px;left:calc(50% - 12px);font-size:12px;border:2px solid #f4eddf}
+.selection-summary{position:sticky;bottom:8px;z-index:10;background:#f5eddfef;backdrop-filter:blur(12px);border:1px solid #d2bf9d;border-radius:5px;padding:10px 20px;box-shadow:0 6px 22px #60462217;max-width:1160px;margin:15px auto 0}
+.selection-summary .selected-tray{flex-wrap:nowrap;justify-content:center;gap:12px;overflow-x:auto;margin:0;scrollbar-width:thin}
+.selection-summary .selected-tray>div{min-width:72px;min-height:80px;flex-shrink:0;padding:6px;font-size:10px}
+.selection-summary .selected-tray img{height:43px;margin-top:4px}
+.selection-summary .tray-placeholder{font-size:22px;line-height:50px}
+.selection-summary .reading-actions{margin:12px 0 0}
+.selection-summary .selected-tray button{min-height:24px;margin:0}
+.reading-actions,.notes-footer{scroll-margin-block:110px}
+.reading-card{min-width:0}
+.update-prompt{position:fixed;bottom:20px;left:20px;z-index:20;border:1px solid #b59e79;background:#f6edde;padding:12px 18px;border-radius:24px;font:12px system-ui,sans-serif;box-shadow:0 5px 14px #61452c13}
+@media(max-width:1100px){.card-spread.full-deck{grid-template-columns:repeat(10,minmax(0,1fr));gap:23px 12px}}
+@media(max-width:800px){
+  .hero{min-width:0}.hero-visual{min-width:0}.hero-cards{width:320px;max-width:100%}.hero-card-2{left:180px}
+  .riffle-table{height:295px;width:350px;margin-top:27px}.riffle-card{width:88px;height:147px;left:-44px}.shuffling-state h2{font-size:25px}
+  .card-spread.full-deck{grid-template-columns:repeat(6,minmax(0,1fr));gap:23px 8px;padding:32px 0 15px}
+  .selection-summary{bottom:73px;padding:10px 12px;margin-top:18px}
+  .selection-summary .selected-tray{justify-content:flex-start;gap:7px}
+  .selection-summary .selected-tray>div{min-width:60px;min-height:72px;font-size:9px}
+  .selection-summary .selected-tray img{height:34px}
+  .selection-summary .reading-actions{gap:9px}
+  .selection-summary .reading-actions .button{flex:1;padding:11px 8px;font-size:11px;min-height:43px}
+  .full-deck .selection-number{width:21px;height:21px;font-size:10px;left:calc(50% - 10px)}
+  .reading-grid .flip-card{width:100%;max-width:185px}
+  .reading-section .reading-grid:not(.count-1):not(.count-3){grid-template-columns:repeat(2,minmax(0,1fr))}
+  .update-prompt{bottom:84px;left:12px}
+}
+@media(max-width:360px){.card-spread.full-deck{grid-template-columns:repeat(5,minmax(0,1fr));gap:22px 8px}}
+@media(prefers-reduced-motion:reduce){.riffle-card{animation:none;transform:translateY(calc(var(--layer)*-1.5px))}.riffle-left{left:-62px}.riffle-right{left:-25px}}
