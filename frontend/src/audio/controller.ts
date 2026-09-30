@@ -8,7 +8,8 @@ let unlocked=false;
 
 export function configure_audio(data: Dataset, value: Settings){
   sounds=data.audio;settings=value;
-  if(!music){music=new Audio(sounds.music);music.loop=true;music.volume=.28;}
+  if(!music){music=new Audio(sounds.music);music.loop=true;music.volume=.28;music.preload='metadata';}
+  else if(music.getAttribute('src')!==sounds.music){music.pause();music.src=sounds.music;music.load();}
   if(!settings.music_enabled)music.pause();
   else if(unlocked && !document.hidden)void music.play().catch(()=>{});
   if(!settings.effects_enabled){for(const sound of playing)sound.pause();playing.clear();}

@@ -45,6 +45,29 @@ def test_catalog_integrity_and_sources(client):
     assert client.get("/api/v1/cards/wands_08").json()["name_zh"] == "权杖八"
 
 
+def test_complete_meanings_reach_api_and_offline_dataset(client):
+    cards = client.get("/api/v1/cards").json()["items"]
+    for card in cards:
+        assert card["meaning_version"] == "2"
+        assert card["meaning_upright"].strip() and card["meaning_reversed"].strip()
+        details = card["meaning_details"]
+        assert details["overview"].strip() and details["symbolism"].strip()
+        for direction in ("upright", "reversed"):
+            assert all(
+                details[direction][topic].strip()
+                for topic in ("general", "love", "career", "advice")
+            )
+        assert card["meaning_source"]["name"] == "神婆网"
+        assert card["meaning_source"]["url"].startswith("https://www.shenpowang.com/taluopai/")
+    source_by_id = {card["id"]: card["meaning_source"]["url"] for card in cards}
+    assert source_by_id["major_justice"].endswith("/d23145.html")
+    assert source_by_id["major_strength"].endswith("/d23122.html")
+    manifest = client.get("/api/v1/resources/manifest").json()
+    offline = client.get(manifest["dataset_url"]).json()
+    assert offline == DATASET
+    assert offline["cards"] == cards
+
+
 def test_queries_intersect_filters(client):
     assert (
         client.get("/api/v1/cards", params={"q": "THE FOOL"}).json()["items"][0]["id"]
@@ -139,3 +162,15 @@ def test_resource_manifest_hashes(client):
         data = path.read_bytes()
         assert len(data) == item["bytes"]
         assert hashlib.sha256(data).hexdigest() == item["sha256"]
+
+
+def test_supplied_music_is_downloadable_audio_with_range_support(client):
+    manifest = client.get("/api/v1/resources/manifest").json()
+    music = DATASET["audio"]["music"]
+    assert "/music-" in music
+    resource = next(item for item in manifest["items"] if item["url"] == music)
+    assert resource["group"] == "audio" and not resource["required"]
+    response = client.get(music, headers={"Range": "bytes=0-63"})
+    assert response.status_code == 206
+    assert len(response.content) == 64
+    assert b"ftyp" in response.content

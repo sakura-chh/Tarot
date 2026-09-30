@@ -1,6 +1,6 @@
 # GitHub 相关项目与借鉴分析
 
-调研日期：2026-09-30｜使用 GitHub 连接读取仓库、README、代码、数据和许可证
+调研日期：2026-09-30；玻璃设计补充：2026-10-01｜使用 GitHub 连接读取仓库、README、代码、数据和许可证
 
 ## 1. 调研方法与结论
 
@@ -103,3 +103,14 @@ GitHub 官方说明，公开仓库可查看并不等于具有允许复制修改�
 用户指定参考 `andrej-karpathy-skills`；GitHub 搜索定位到 [multica-ai/andrej-karpathy-skills](https://github.com/multica-ai/andrej-karpathy-skills)，读取 README、CLAUDE.md 和实际技能文件。它总结了实现前明确假设、保持简单、只修改必要范围、用可验证条件完成任务四项原则。本项目将其改写成适合自身需求的中文工作约定，没有安装该技能或照搬整份文件。[核查技能文件](https://github.com/multica-ai/andrej-karpathy-skills/blob/2c606141936f1eeef17fa3043a72095b4765b9c2/skills/karpathy-guidelines/SKILL.md)
 
 这些原则用于根目录 [agent.md](../agent.md)，与用户明确提出的复用、单一职责、重点注释、下划线命名和持续更新要求结合。
+
+## 11. 通透玻璃导航与弹性反馈
+
+2026-10-01 根据用户要求，通过 GitHub 连接检索 Liquid Glass，并读取以下项目的 README、具体实现与独立 MIT LICENSE：
+
+| 项目 | 核查文件 | 采用的设计思路 |
+|---|---|---|
+| [rdev/liquid-glass-react](https://github.com/rdev/liquid-glass-react) | [src/index.tsx](https://github.com/rdev/liquid-glass-react/blob/master/src/index.tsx)，文件 SHA a0e6b7242d2c66c598eecdfbe33815d996621571 | 透明材质、边缘亮光、弹性反馈；不引入其位移滤镜或鼠标吸附 |
+| [sohumsuthar/liquid-glass](https://github.com/sohumsuthar/liquid-glass) | [liquid-glass-nav.css](https://github.com/sohumsuthar/liquid-glass/blob/main/css/liquid-glass-nav.css)，文件 SHA 794fe73a13d14bd43e7e2e108217103024aec433 | 低模糊、低底色覆盖、分层高光、悬浮胶囊及透明度偏好回退 |
+
+本项目采用自己实现的 CSS 透明材质、菜单滑动高光、连续采样的阻尼回弹，没有复制上述源码或增加第三方运行依赖。当前实现使用可跨浏览器的模糊与高光，不宣称具有这些仓库的 SVG 光学折射；实际验证范围见 [08](08-implementation-and-validation.md)。

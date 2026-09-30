@@ -1,12 +1,15 @@
-"""Generate web assets and original ambient audio; never overwrite the supplied originals."""
+"""Generate web assets and import supplied music; never overwrite the supplied originals."""
 
+import argparse
 import hashlib
 import importlib.util
 import json
 import math
 import random
 import re
+import shutil
 import struct
+import subprocess
 import wave
 from pathlib import Path
 
@@ -14,7 +17,7 @@ from PIL import Image, ImageDraw
 
 ROOT = Path(__file__).resolve().parents[2]
 OUT = ROOT / "media" / "v1"
-VERSION = "2026.09.30.4"
+VERSION = "2026.10.01.1"
 spec = importlib.util.spec_from_file_location("meanings", ROOT / "backend/content/meanings.py")
 meanings = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(meanings)
@@ -108,8 +111,40 @@ def write_audio(name: str, seconds: float) -> str:
     return f"/media/v1/{path.name}"
 
 
-def main() -> None:
+def supplied_music() -> str | None:
+    source = ROOT / "assets/sounds.mp4"
+    if not source.is_file():
+        return None
+    source_hash = hashlib.sha256(source.read_bytes()).hexdigest()[:12]
+    name = f"music-{source_hash}"
+    prepared = sorted(OUT.glob(f"{name}-*.m4a"))
+    if prepared:
+        return f"/media/v1/{prepared[0].name}"
+    converter = shutil.which("afconvert")
+    if converter:
+        temporary = OUT / f"{name}.m4a"
+        # Copy AAC packets without re-encoding, keeping the original MP4 intact.
+        subprocess.run(
+            [converter, "-f", "m4af", "-d", "0", str(source), str(temporary)], check=True
+        )
+        digest = hashlib.sha256(temporary.read_bytes()).hexdigest()[:12]
+        destination = OUT / f"{name}-{digest}.m4a"
+        temporary.rename(destination)
+    else:
+        # HTMLAudioElement can play the audio track directly on other platforms.
+        destination = OUT / f"{name}.mp4"
+        if not destination.exists():
+            shutil.copyfile(source, destination)
+    return f"/media/v1/{destination.name}"
+
+
+def main(content_only: bool = False) -> None:
     OUT.mkdir(parents=True, exist_ok=True)
+    full_meanings = meanings.load_meanings()
+    previous = (
+        json.loads((ROOT / "backend/content/cards.json").read_text()) if content_only else None
+    )
+    previous_cards = {card["id"]: card for card in previous["cards"]} if previous else {}
     cards = []
     for path in sorted((ROOT / "assets").glob("*.jpg")):
         match = re.match(r"^(.*?)_(Major|Minor) Arcana Tarot Card\. (.*)\.jpg$", path.name, re.I)
@@ -118,7 +153,7 @@ def main() -> None:
         prefix, category, name_en = match.groups()
         if category.lower() == "major":
             number = int(prefix)
-            name_zh, up, down, keys_up, keys_down = meanings.MAJOR[number]
+            name_zh = meanings.MAJOR_NAMES[number]
             card_id = f"major_{MAJOR_IDS[number]}"
             suit = rank = None
             order = number
@@ -129,12 +164,16 @@ def main() -> None:
             rank = RANK_IDS[rank_index]
             card_id = f"{suit}_{rank}"
             name_zh = suit_zh + RANK_ZH[rank_index]
-            up, down, keys_up, keys_down = meanings.MINOR[suit][rank_index]
             order = base + rank_index
             number = None
-        with Image.open(path) as image:
-            thumb = image_asset(image, f"{card_id}-thumb", 340, 78)
-            display = image_asset(image, f"{card_id}-display", 1200, 83)
+        entry = full_meanings[card_id]
+        if content_only:
+            thumb = previous_cards[card_id]["images"]["thumbnail_url"]
+            display = previous_cards[card_id]["images"]["display_url"]
+        else:
+            with Image.open(path) as image:
+                thumb = image_asset(image, f"{card_id}-thumb", 340, 78)
+                display = image_asset(image, f"{card_id}-display", 1200, 83)
         cards.append(
             {
                 "id": card_id,
@@ -143,6 +182,9 @@ def main() -> None:
                 "name_en": name_en,
                 "aliases": {
                     "major_high_priestess": ["女教皇"],
+                    "major_fool": ["愚人"],
+                    "major_hermit": ["隐士"],
+                    "major_devil": ["魔鬼"],
                     "major_judgement": ["重生"],
                     "major_hanged_man": ["悬吊者"],
                 }.get(card_id, [])
@@ -156,25 +198,34 @@ def main() -> None:
                 "rank": rank,
                 "display_number": number,
                 "sort_order": order,
-                "keywords_upright": keys_up.split(),
-                "keywords_reversed": keys_down.split(),
-                "meaning_upright": up,
-                "meaning_reversed": down,
-                "meaning_version": "1",
+                "keywords_upright": entry["keywords_upright"],
+                "keywords_reversed": entry["keywords_reversed"],
+                "meaning_upright": entry["summary_upright"],
+                "meaning_reversed": entry["summary_reversed"],
+                "meaning_details": {
+                    key: entry[key] for key in ("overview", "symbolism", "upright", "reversed")
+                },
+                "meaning_source": entry["source"],
+                "meaning_version": "2",
                 "content_status": "draft",
                 "images": {"thumbnail_url": thumb, "display_url": display},
             }
         )
     assert len(cards) == len({c["id"] for c in cards}) == 78
     cards.sort(key=lambda c: c["sort_order"])
-    with Image.open(ROOT / "design/hourglass-card-back.png") as image:
-        back = image_asset(image, "hourglass-card-back", 1200, 88)
-    audio = {
-        "music": write_audio("ambient", 20),
-        "shuffle": write_audio("shuffle", 0.8),
-        "flip": write_audio("flip", 0.22),
-    }
-    for size in [192, 512]:
+    if previous:
+        back, audio = previous["card_back_url"], previous["audio"]
+    else:
+        with Image.open(ROOT / "design/hourglass-card-back.png") as image:
+            back = image_asset(image, "hourglass-card-back", 1200, 88)
+        audio = {
+            "music": write_audio("ambient", 20),
+            "shuffle": write_audio("shuffle", 0.8),
+            "flip": write_audio("flip", 0.22),
+        }
+    if music := supplied_music():
+        audio["music"] = music
+    for size in [] if content_only else [192, 512]:
         icon = Image.new("RGB", (size, size), "#efe4cc")
         pen = ImageDraw.Draw(icon)
         pen.rounded_rectangle(
@@ -225,6 +276,9 @@ def main() -> None:
             f"/media/v1/{dataset_path.name}",
         ]
     )
+    for url in active_files:
+        if not (ROOT / url.lstrip("/")).is_file():
+            raise ValueError(f"Missing bundle resource: {url}")
     items = []
     for file in sorted(OUT.iterdir()):
         if file.is_file() and f"/media/v1/{file.name}" in active_files:
@@ -234,8 +288,8 @@ def main() -> None:
                     "url": f"/media/v1/{file.name}",
                     "bytes": len(content),
                     "sha256": hashlib.sha256(content).hexdigest(),
-                    "group": "audio" if file.suffix == ".wav" else "core",
-                    "required": file.suffix != ".wav",
+                    "group": "audio" if f"/media/v1/{file.name}" in audio.values() else "core",
+                    "required": f"/media/v1/{file.name}" not in audio.values(),
                 }
             )
     manifest = {
@@ -254,4 +308,10 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--content-only",
+        action="store_true",
+        help="Reuse images/effects while updating meanings and supplied music",
+    )
+    main(content_only=parser.parse_args().content_only)

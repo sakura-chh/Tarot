@@ -1,9 +1,12 @@
 export type Mode = 'daily' | 'past_present_future' | 'situation_obstacle_advice' | 'free';
+export interface MeaningTopics { general: string; love: string; career: string; advice: string }
+export interface MeaningDetails { overview: string; symbolism: string; upright: MeaningTopics; reversed: MeaningTopics }
 export interface Card {
   id: string; deck_id: string; name_zh: string; name_en: string; aliases: string[];
   arcana: 'major' | 'minor'; suit: string | null; rank: string | null;
   display_number: number | null; sort_order: number; keywords_upright: string[];
   keywords_reversed: string[]; meaning_upright: string; meaning_reversed: string;
+  meaning_details?: MeaningDetails; meaning_source?: { name: string; url: string }; meaning_version?: string;
   content_status: string; images: { thumbnail_url: string; display_url: string };
 }
 export interface Spread { id: Mode; name: string; description: string; min_count: number; max_count: number; positions: string[] }

@@ -1,10 +1,10 @@
 # 数据模型与 API 契约
 
-版本：1.1｜日期：2026-09-30｜包含设计规格和第一版实际实现说明
+版本：1.3｜日期：2026-10-01｜包含设计规格和第一版实际实现说明
 
 第一版实现：SQLite 使用 `schema_migrations`、`cards(id, payload)` 和匿名 `draw_sessions`，公开数据由 `backend/content/cards.json` 导入。IndexedDB 使用 `meta`（设置、数据集、当前会话、离线状态）、`readings`、`daily_results` 三个 store；卡牌快照和高清牌面 `display_blob` 直接随新记录保存。下文更细的表拆分属于后续扩展设计。
 
-当前媒体路径为 `/media/v1/<card_id>-display-<hash>.webp`，数据版本 `2026.09.30.4`。实际接口可访问 `/docs` 的 OpenAPI；历史没有后端接口。前端查询当前已加载的完整数据集，采用与 Python API 相同的搜索契约。
+当前媒体路径为 `/media/v1/<card_id>-display-<hash>.webp`，数据版本 `2026.10.01.1`。实际接口可访问 `/docs` 的 OpenAPI；历史没有后端接口。前端查询当前已加载的完整数据集，采用与 Python API 相同的搜索契约。
 
 ## 1. 标识与版本约定
 
@@ -34,13 +34,17 @@
 | sort_order | integer | 完整牌组稳定排序，0–77 |
 | keywords_upright | string[] | 中文正位关键词 |
 | keywords_reversed | string[] | 中文逆位关键词 |
-| meaning_upright | string | 纯文本基础牌义 |
-| meaning_reversed | string | 纯文本基础牌义 |
+| meaning_upright | string | 正位精简摘要，抽牌、导出与速读使用 |
+| meaning_reversed | string | 逆位精简摘要，抽牌、导出与速读使用 |
+| meaning_details | object，可缺省 | 完整释义：overview、symbolism、upright、reversed；两个方向各含 general、love、career、advice |
+| meaning_source | object，可缺省 | 参考资料名称 name 与单牌文章 url |
 | meaning_version | string | 内容审核与记录快照使用 |
 | content_status | draft / reviewed | 第一版正式发布要求全部 reviewed |
 | images | object | 缩略图与展示图，不包含外部不稳定热链 |
 
 卡牌样例中的牌义为结构示例，尚非完整的 78 张内容交付：
+
+当前 78 张发布卡牌都含 `meaning_details` 与 `meaning_source`，`meaning_version` 为字符串 `"2"`；旧记录的摘要保持原快照，点击详情则按语义 ID 从当前图鉴读取完整释义，找不到对应卡牌时才回退到快照。完整结构与参考资料见 [牌义来源](09-meaning-sources.md)。上述新增字段保持 schema_version 1 的兼容性。
 
 ```json
 {

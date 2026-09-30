@@ -2,6 +2,7 @@ import { createRoot } from 'react-dom/client';
 import App from './App';
 import './styles.css';
 import './features/draw.css';
+import './celestial.css';
 
 createRoot(document.getElementById('root')!).render(<App/>);
 if(import.meta.env.PROD && 'serviceWorker' in navigator){

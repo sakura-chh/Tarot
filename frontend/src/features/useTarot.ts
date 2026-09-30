@@ -7,6 +7,7 @@ import { play_effect } from '../audio/controller';
 
 export function useTarot(data: Dataset){
   const [work,set_work]=useState<Work|null>(null),[reading,set_reading]=useState<Reading|null>(null);
+  const [reading_entry,set_reading_entry]=useState(0);
   const [busy,set_busy]=useState(false),[shuffling,set_shuffling]=useState(false),[error,set_error]=useState('');
   const work_ref=useRef<Work|null>(null),busy_ref=useRef(false);
   const assign_work=(value:Work|null)=>{work_ref.current=value;set_work(value);};
@@ -46,6 +47,7 @@ export function useTarot(data: Dataset){
       settings_snapshot:current.settings_snapshot,cards,revealed:[]};
     const accepted=await commit_reading(record,current);set_reading(accepted);
     assign_work({...current,phase:'revealing',reading_id:accepted.id});
+    set_reading_entry(value=>value+1);
   }
 
   async function start(mode:Mode,count:number,settings:Settings,question:string,quick:boolean){
@@ -53,7 +55,7 @@ export function useTarot(data: Dataset){
     try{
       if(mode==='daily'){
         const today=await get_daily(data.deck_id);
-        if(today){set_reading(today);assign_work(null);await save_work(null);return;}
+        if(today){set_reading(today);assign_work(null);await save_work(null);set_reading_entry(value=>value+1);return;}
       }
       play_effect('shuffle');set_reading(null);set_shuffling(!quick);
       const reduced=window.matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -80,5 +82,5 @@ export function useTarot(data: Dataset){
   async function update(record:Reading){await update_reading(record);set_reading(record);}
   async function resume_daily(){const today=await get_daily(data.deck_id);if(!today)return false;set_reading(today);assign_work(null);await save_work(null);return true;}
   async function reset(){assign_work(null);set_reading(null);set_error('');await save_work(null);}
-  return {work,reading,busy,shuffling,error,start,select,set_group,commit,update,reset,resume_daily};
+  return {work,reading,reading_entry,busy,shuffling,error,start,select,set_group,commit,update,reset,resume_daily};
 }

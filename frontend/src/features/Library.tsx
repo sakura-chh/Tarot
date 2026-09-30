@@ -5,13 +5,23 @@ import { search_cards } from '../domain/rules';
 
 export function CardDetail({card}:{card:Card}){
   const [reversed,set_reversed]=useState(false);
+  const [meaning_mode,set_meaning_mode]=useState<'concise'|'full'>('concise');
+  const details=card.meaning_details, topics=details?.[reversed?'reversed':'upright'];
+  const sections=details&&topics?[
+    ['牌义概览',details.overview],['传统牌面象征',details.symbolism],
+    [reversed?'逆位解读':'正位解读',topics.general],['感情与关系',topics.love],
+    ['工作与学业',topics.career],['行动建议',topics.advice],
+  ]:[];
   return <div className="card-detail">
     <div className="detail-art"><img src={card.images.display_url} alt={card.name_zh} className={reversed?'reversed':''}/></div>
     <div className="detail-copy"><span className="eyebrow">{card.arcana==='major'?'MAJOR ARCANA':'MINOR ARCANA'}</span>
       <h2>{card.name_zh}</h2><p className="english-title">{card.name_en}</p>
-      <div className="segmented"><button className={!reversed?'active':''} onClick={()=>set_reversed(false)}>正位牌义</button><button className={reversed?'active':''} onClick={()=>set_reversed(true)}>逆位牌义</button></div>
+      <div className="meaning-mode" role="group" aria-label="释义详细程度"><button className={meaning_mode==='concise'?'active':''} aria-pressed={meaning_mode==='concise'} onClick={()=>set_meaning_mode('concise')}>精简释义</button><button className={meaning_mode==='full'?'active':''} aria-pressed={meaning_mode==='full'} onClick={()=>set_meaning_mode('full')}>完整释义</button></div>
+      <div className="segmented" role="group" aria-label="牌面方向"><button className={!reversed?'active':''} aria-pressed={!reversed} onClick={()=>set_reversed(false)}>正位牌义</button><button className={reversed?'active':''} aria-pressed={reversed} onClick={()=>set_reversed(true)}>逆位牌义</button></div>
       <div className="tags">{(reversed?card.keywords_reversed:card.keywords_upright).map(key=><span key={key}>{key}</span>)}</div>
-      <p className="meaning-text">{reversed?card.meaning_reversed:card.meaning_upright}</p><p className="quiet">基础牌义 · 内容待审核</p>
+      {meaning_mode==='full'&&sections.length?<div className="meaning-sections">{sections.map(([title,body])=><section key={title}><h3>{title}</h3><p>{body}</p></section>)}</div>:<p className="meaning-text">{reversed?card.meaning_reversed:card.meaning_upright}</p>}
+      <p className="quiet meaning-note">{meaning_mode==='full'&&!sections.length?'此卡暂无完整释义，先查看精简牌义。':details?meaning_mode==='concise'?'精简释义 · 切换完整释义查看牌面与分主题解读。':'牌义根据参考资料重新整理，可结合实际情境理解。':'基础牌义 · 内容待审核'}</p>
+      {card.meaning_source&&<p className="quiet meaning-source">参考资料：<a href={card.meaning_source.url} target="_blank" rel="noopener noreferrer">{card.meaning_source.name}<ArrowUpRight size={12}/></a></p>}
     </div>
   </div>;
 }

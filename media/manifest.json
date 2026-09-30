@@ -1,17 +1,10 @@
 {
-  "bundle_version": "v1-45a15e7e2153",
-  "dataset_version": "2026.09.30.4",
+  "bundle_version": "v1-8816a4280b04",
+  "dataset_version": "2026.10.01.1",
   "schema_version": "1",
-  "dataset_url": "/media/v1/dataset-45a15e7e2153.json",
-  "total_bytes": 28806760,
+  "dataset_url": "/media/v1/dataset-8816a4280b04.json",
+  "total_bytes": 30658736,
   "items": [
-    {
-      "url": "/media/v1/ambient.wav",
-      "bytes": 882044,
-      "sha256": "5487014441e1b1ce9f3163a113ac68b13c6d4d5a150ba92996ef4da130fd5a09",
-      "group": "audio",
-      "required": false
-    },
     {
       "url": "/media/v1/cups_02-display-c8e543aa3798.webp",
       "bytes": 328086,
@@ -209,9 +202,9 @@
       "required": true
     },
     {
-      "url": "/media/v1/dataset-45a15e7e2153.json",
-      "bytes": 55029,
-      "sha256": "45a15e7e21539adbab4143347856c92eebc2d00441706e16f22a6d3084fa7ab3",
+      "url": "/media/v1/dataset-8816a4280b04.json",
+      "bytes": 168719,
+      "sha256": "8816a4280b04a7d3a23d34b2e788d935025cc9b2e9907b01106c701d17341b23",
       "group": "core",
       "required": true
     },
@@ -550,6 +543,13 @@
       "sha256": "655c783d6b9deb65ccba53aabe53e5d19684070fdfa98d1dd065edb18c037d31",
       "group": "core",
       "required": true
+    },
+    {
+      "url": "/media/v1/music-be1c33499d4f-44fbb69547e4.m4a",
+      "bytes": 2620330,
+      "sha256": "44fbb69547e4102a9cfdc14e90503f9eef21c43f5e60bf9222537f71e3cf8aa9",
+      "group": "audio",
+      "required": false
     },
     {
       "url": "/media/v1/pentacles_02-display-1179d26a5a3e.webp",

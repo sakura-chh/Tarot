@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { ArrowLeft, Search, Volume2, VolumeX, Sun, ArrowUpRight, House, Layers, BookOpen, NotebookPen, SlidersHorizontal } from 'lucide-react';
 import type { BundleState, Card, Dataset, Mode, Reading, Settings as SettingsType } from './domain/types';
 import { DEFAULT_SETTINGS } from './domain/types';
@@ -7,6 +7,9 @@ import { clear_data, get_settings, save_settings, update_reading } from './adapt
 import { configure_audio, unlock_audio } from './audio/controller';
 import { check_bundle, clear_offline, download_bundle } from './pwa/offline';
 import { Modal } from './components/Modal';
+import { Starfield } from './components/Starfield';
+import { useButtonFeedback } from './components/useButtonFeedback';
+import { GlassNavigation } from './components/GlassNavigation';
 import { Home } from './features/Home';
 import { Draw } from './features/Draw';
 import { Library, CardDetail } from './features/Library';
@@ -21,12 +24,20 @@ const nav:[Page,string,typeof House][]=[['home','首页',House],['draw','抽牌'
 const current_page=():Page=>Object.entries(routes).find(([,path])=>path!=='/'&&location.pathname.startsWith(path))?.[0] as Page||'home';
 
 function Atelier({data}:{data:Dataset}){
+  useButtonFeedback();
   const [page,set_page]=useState<Page>(current_page),[mode,set_mode]=useState<Mode>('daily'),[settings,set_settings]=useState<SettingsType>(DEFAULT_SETTINGS);
   const [search,set_search]=useState(false),[detail,set_detail]=useState<Card|null>(null),[historic,set_historic]=useState<Reading|null>(null);
   const [bundle,set_bundle]=useState<BundleState>(),[progress,set_progress]=useState(0),[downloading,set_downloading]=useState(false),[error,set_error]=useState('');
   const [audio_blocked,set_audio_blocked]=useState(false);const attempted=useRef(false),download=useRef<AbortController|null>(null);
   const [waiting_worker,set_waiting_worker]=useState<ServiceWorker>();
   const tarot=useTarot(data);
+  const scrolled_entry=useRef(0);
+  useLayoutEffect(()=>{
+    if(page!=='draw'||search||detail||!tarot.reading_entry||scrolled_entry.current===tarot.reading_entry)return;
+    scrolled_entry.current=tarot.reading_entry;
+    document.querySelector<HTMLElement>('.reading-intro h1')?.focus({preventScroll:true});
+    window.scrollTo({top:0,behavior:window.matchMedia('(prefers-reduced-motion: reduce)').matches?'instant':'smooth'});
+  },[page,tarot.reading_entry,search,detail]);
   useEffect(()=>{void get_settings().then(value=>{if(value)set_settings(value);}).catch(()=>set_error('偏好未能读取。'));void check_bundle(data.dataset_version).then(set_bundle).catch(()=>{});},[data.dataset_version]);
   useEffect(()=>{configure_audio(data,settings);},[data,settings]);
   useEffect(()=>{
@@ -46,7 +57,11 @@ function Atelier({data}:{data:Dataset}){
   const change_settings=(value:SettingsType)=>{set_settings(value);void save_settings(value).catch(()=>set_error('偏好未保存。'));};
   function activate_audio(){if(!attempted.current){attempted.current=true;void unlock_audio().catch(()=>set_audio_blocked(true));}}
   function open_search(){history.pushState(null,'',`${location.pathname}#search`);set_search(true);set_detail(null);}
-  function open_card(card:Card){history.pushState(null,'',`${location.pathname}${search?'#search-card=':'#card='}${card.id}`);set_detail(card);}
+  function open_card(card:Card){
+    // Old readings keep their original snapshots; all detail entrances use the current catalog.
+    const current=data.cards.find(item=>item.id===card.id)??card;
+    history.pushState(null,'',`${location.pathname}${search?'#search-card=':'#card='}${card.id}`);set_detail(current);
+  }
   function close_overlay(){if(detail){set_detail(null);history.back();}else if(search){set_search(false);history.back();}}
   async function choose_mode(value:Mode){
     if(tarot.work?.phase==='selecting'&&!confirm('开始新的探索？当前未确认的选牌进度将被清除。'))return;
@@ -61,9 +76,9 @@ function Atelier({data}:{data:Dataset}){
   async function clear_cache(){if(!confirm('清除离线资源？历史和笔记会保留。'))return;await clear_offline();set_bundle(await check_bundle(data.dataset_version));}
   async function clear_personal(){if(!confirm('删除全部个人数据，包括历史、笔记、每日结果和偏好？离线资源会保留。'))return;await clear_data('all');await tarot.reset();change_settings(DEFAULT_SETTINGS);set_historic(null);navigate('home');}
 
-  return <div className="site" onPointerDownCapture={activate_audio} onKeyDownCapture={activate_audio}>
+  return <><Starfield/><div className="site" onPointerDownCapture={activate_audio} onKeyDownCapture={activate_audio}>
     <header className="site-header"><button className="brand" onClick={()=>navigate('home')} aria-label="纸境首页"><span className="brand-symbol"><Sun size={28} strokeWidth={1.1}/></span><span><strong>纸境</strong><small>TAROT ATELIER</small></span></button>
-      <nav aria-label="主导航">{nav.map(([key,label])=><button key={key} className={page===key?'active':''} onClick={()=>navigate(key)}>{label}</button>)}</nav>
+      <GlassNavigation items={nav} active={page} on_change={navigate}/>
       <div className="header-tools"><button className="icon-button" aria-label="全站卡牌查询" onClick={open_search}><Search size={19}/></button><span className="tool-divider"/><button className="icon-button" aria-label={settings.music_enabled?'关闭背景音乐':'开启背景音乐'} onClick={()=>{change_settings({...settings,music_enabled:!settings.music_enabled});if(!settings.music_enabled)void unlock_audio().then(()=>set_audio_blocked(false)).catch(()=>set_audio_blocked(true));}}>{settings.music_enabled?<Volume2 size={19}/>:<VolumeX size={19}/>}</button></div>
     </header>
     <main>
@@ -74,7 +89,7 @@ function Atelier({data}:{data:Dataset}){
       {page==='settings'&&<Settings settings={settings} on_change={change_settings} bundle={bundle} progress={progress} downloading={downloading} on_download={()=>void download_resources()} on_cancel={()=>download.current?.abort()} on_clear_cache={()=>void clear_cache().catch(()=>set_error('清除资源失败。'))} on_clear_personal={()=>void clear_personal().catch(()=>set_error('清除数据失败。'))} error={error}/>}
     </main>
     <footer className="site-footer"><span>✧ 纸境 · TAROT ATELIER</span><p>留一点时间，听见自己。</p><span>78 张牌 · 一场内在探索 <ArrowUpRight size={13}/></span></footer>
-    <nav className="mobile-nav" aria-label="手机导航">{nav.map(([key,label,Icon])=><button key={key} className={page===key?'active':''} onClick={()=>navigate(key)}><Icon size={19} strokeWidth={1.5}/><span>{label==='卡牌图鉴'?'图鉴':label==='我的记录'?'记录':label}</span></button>)}</nav>
+    <GlassNavigation items={nav} active={page} on_change={navigate} mobile/>
     {audio_blocked&&settings.music_enabled&&<button className="audio-prompt" onClick={()=>void unlock_audio().then(()=>set_audio_blocked(false)).catch(()=>set_error('音乐暂时不能播放。'))}>♫ 点击播放背景音乐</button>}
     {waiting_worker&&page==='home'&&!search&&!detail&&<button className="update-prompt" onClick={()=>{
       navigator.serviceWorker.addEventListener('controllerchange',()=>location.reload(),{once:true});
@@ -84,7 +99,7 @@ function Atelier({data}:{data:Dataset}){
       {search&&<div hidden={!!detail}><Library data={data} compact on_card={open_card}/></div>}
       {detail&&<>{search&&<button className="text-button" onClick={close_overlay}><ArrowLeft size={16}/>返回搜索</button>}<CardDetail key={detail.id} card={detail}/></>}
     </Modal>}
-  </div>;
+  </div></>;
 }
 
 export default function App(){

@@ -1,11 +1,19 @@
-import { useEffect, useState } from 'react';
-import type { CSSProperties } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import type { CSSProperties, RefObject } from 'react';
+
+import type { DeckBounds } from '../components/DeckHandoff';
 
 const stages = ['将牌组分成两叠', '交错洗入每一张牌', '拱起牌组，轻轻收拢', '整齐收牌，准备选择'];
 
-export function ShuffleScene({ back }: { back: string }) {
+export function ShuffleScene({ back, handoff }: { back: string; handoff:RefObject<DeckBounds|null> }) {
+  const top_card=useRef<HTMLImageElement>(null);
+  useLayoutEffect(()=>{
+    handoff.current=null;const card=top_card.current;
+    return()=>{if(card)handoff.current=card.getBoundingClientRect();};
+  },[handoff]);
   const [stage, set_stage] = useState(0);
   useEffect(() => {
+    window.scrollTo({top:0,behavior:window.matchMedia('(prefers-reduced-motion: reduce)').matches?'instant':'smooth'});
     const timers = [650, 1800, 2550].map((delay, i) => setTimeout(() => set_stage(i + 1), delay));
     return () => timers.forEach(clearTimeout);
   }, []);
@@ -17,8 +25,8 @@ export function ShuffleScene({ back }: { back: string }) {
       <div className="riffle-deck">
         {['left', 'right'].flatMap((side, side_index) => Array.from({ length: 12 }, (_, i) =>
           <div className={`riffle-card riffle-${side}`} key={`${side}-${i}`}
-            style={{ '--layer': i, '--riffle-delay': `${i * 42}ms`, zIndex: i * 2 + side_index } as CSSProperties}>
-            <img src={back} alt="" />
+            style={{ '--layer': i, '--riffle-delay': `${i * 38}ms`, zIndex: i * 2 + side_index } as CSSProperties}>
+            <img ref={side_index===1&&i===11?top_card:undefined} src={back} alt="" />
           </div>))}
       </div>
     </div>
