@@ -49,7 +49,8 @@ function Atelier({data}:{data:Dataset}){
   },[]);
   useEffect(()=>{
     const sync=()=>{set_page(current_page());const hash=location.hash;
-      set_search(hash.startsWith('#search'));const id=hash.startsWith('#card=')?decodeURIComponent(hash.slice(6)):hash.startsWith('#search-card=')?decodeURIComponent(hash.slice(13)):null;
+      set_search(hash.startsWith('#search'));let id:string|null=null;
+      try{id=hash.startsWith('#card=')?decodeURIComponent(hash.slice(6)):hash.startsWith('#search-card=')?decodeURIComponent(hash.slice(13)):null;}catch{/* Ignore malformed URL fragments instead of crashing the page. */}
       set_detail(id?data.cards.find(c=>c.id===id)??null:null);};
     window.addEventListener('popstate',sync);sync();return()=>window.removeEventListener('popstate',sync);
   },[data]);

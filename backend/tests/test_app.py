@@ -15,7 +15,7 @@ DATASET = json.loads((ROOT / "backend/content/cards.json").read_text())
 
 @pytest.fixture
 def client(tmp_path):
-    with TestClient(create_app(tmp_path / "test.sqlite3")) as value:
+    with TestClient(create_app(tmp_path / "test.sqlite3"), base_url="http://127.0.0.1") as value:
         yield value
 
 

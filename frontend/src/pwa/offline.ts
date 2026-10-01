@@ -1,14 +1,17 @@
 import { get_bundle, save_bundle } from '../adapters/storage';
-import type { BundleState, Manifest } from '../domain/types';
+import type { BundleState } from '../domain/types';
+import { validate_manifest } from '../domain/validation';
 
 export const cache_name=(version: string)=>`paper-tarot-media-${version}`;
 const hex=(buffer: ArrayBuffer)=>Array.from(new Uint8Array(buffer),b=>b.toString(16).padStart(2,'0')).join('');
 
 export async function check_bundle(expected_dataset_version: string): Promise<BundleState|undefined> {
   const state=await get_bundle();if(!state)return undefined;
+  validate_manifest(state.manifest);
+  if(state.bundle_version!==state.manifest.bundle_version)throw Error('离线资源版本不一致。');
   const cache=await caches.open(cache_name(state.bundle_version));
   const exists=await Promise.all(state.manifest.items.map(item=>cache.match(item.url).then(Boolean)));
-  // Keep older resources, but do not claim they cover the currently loaded dataset.
+  // 保留旧素材供历史使用，但不能把旧包标记为当前数据集已离线就绪。
   const current=state.manifest.dataset_version===expected_dataset_version;
   state.ready=current&&state.manifest.items.every((item,i)=>!item.required || exists[i]);
   state.audio_ready=current&&state.manifest.items.every((item,i)=>item.group!=='audio'||exists[i]);
@@ -22,7 +25,7 @@ export async function download_bundle(progress: (bytes: number,total: number)=>v
   await navigator.storage?.persist?.();
   const response=await fetch('/api/v1/resources/manifest',{cache:'reload',signal});
   if(!response.ok)throw Error('无法读取离线清单。');
-  const manifest: Manifest=await response.json(), cache=await caches.open(cache_name(manifest.bundle_version));
+  const manifest=validate_manifest(await response.json()), cache=await caches.open(cache_name(manifest.bundle_version));
   if(estimate?.quota && estimate.quota-(estimate.usage??0)<manifest.total_bytes)throw Error('本地空间不足，请释放空间后重试。');
   let complete=0;const failed: string[]=[];
   for(const item of manifest.items){
@@ -30,8 +33,9 @@ export async function download_bundle(progress: (bytes: number,total: number)=>v
     try{
       let result=await cache.match(item.url);
       let bytes=result?await result.clone().arrayBuffer():null;
+      // 续传时也重新校验已有缓存；只有长度和哈希都正确的内容才计入进度。
       if(!bytes || bytes.byteLength!==item.bytes || hex(await crypto.subtle.digest('SHA-256',bytes))!==item.sha256){
-        result=await fetch(item.url,{cache:'reload',signal});
+        result=await fetch(item.url,{cache:'reload',signal,redirect:'error'});
         if(!result.ok)throw Error('资源下载失败');
         bytes=await result.clone().arrayBuffer();
         if(bytes.byteLength!==item.bytes || hex(await crypto.subtle.digest('SHA-256',bytes))!==item.sha256)throw Error('资源校验失败');

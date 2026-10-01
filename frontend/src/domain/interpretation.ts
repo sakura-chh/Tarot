@@ -4,8 +4,8 @@ type Theme = 'exploration' | 'direction' | 'balance' | 'care' | 'connection' | '
 type Motif = [Theme, string];
 type CardMotifs = [Motif, Motif];
 
-// Short editorial bridges between cards; full meanings remain in the catalog.
-// Reversed cards have their own motifs rather than being scored as bad outcomes.
+// 这里整理牌间联系，完整牌义仍由图鉴维护，避免出现两套正文。
+// 逆位使用独立主题，不能简单换算成负面结果。
 const motifs: Record<string, CardMotifs> = {
   major_fool: [['exploration','带着好奇迈出第一步'],['clarity','行动前补足准备与风险判断']],
   major_magician: [['direction','把已有能力变成具体行动'],['clarity','核对承诺与实际能力的差距']],
@@ -115,10 +115,67 @@ const obstacle_lenses: Record<Theme,string> = {
   security:'对稳定的依赖若变成紧握不放，就会减少调整与合作的空间',
 };
 
-export interface ReadingInterpretation { sections: { title: string; text: string }[] }
+export interface ReadingInterpretation { sections: { title: string; text: string; paragraphs?:string[]; items?:string[] }[] }
+
+export interface CardInterpretation {
+  slot_id:string; position:string; name:string; orientation:string; keywords:string[];
+  focus:string; general:string; context:string; advice:string; reflection:string;
+  overview?:string; symbolism?:string; love?:string; career?:string;
+}
+
+const reflections:Record<Theme,string>={
+  exploration:'哪一个小尝试既让我好奇，又在目前的时间与资源范围内？',
+  direction:'我真正想推进的目标是什么？今天能完成哪一个具体步骤？',
+  balance:'哪里投入过多，哪里照顾不足？我可以先调整哪一条边界？',
+  care:'我正在忽略什么需要？谁或什么安排能够提供实际的支持？',
+  connection:'我希望得到怎样的回应？这份期待是否已经清楚地表达出来？',
+  change:'哪些经验值得保留，哪些做法已经不再适合现在的处境？',
+  clarity:'哪些是已经发生的事实，哪些只是猜测？还缺少什么信息？',
+  burden:'哪些责任确实属于我，哪些可以协商、分担或停止？',
+  recovery:'我现在能承受多大的步幅？什么能帮助我恢复一点力量？',
+  completion:'哪些成果已经落实，哪些环节仍需要收尾？',
+  security:'我的稳定感来自哪些实际条件？哪些安排需要留出调整空间？',
+};
+
+// 只解读已翻开的牌；牌位改变观察角度，不改写卡牌本身的含义。
+export function interpret_cards(record:Reading,catalog:Dataset['cards']):CardInterpretation[]{
+  return record.cards.filter(picked=>record.revealed.includes(picked.slot_id)).map(picked=>{
+    const card=catalog.find(current=>current.id===picked.card.id)??picked.card;
+    const orientation=picked.is_reversed?'逆位':'正位',motif=motifs[card.id]?.[picked.is_reversed?1:0];
+    const focus=motif?.[1]??(picked.is_reversed?card.meaning_reversed:card.meaning_upright);
+    const topics=card.meaning_details?.[picked.is_reversed?'reversed':'upright'];
+    let context:string;
+    const index=record.cards.indexOf(picked);
+    if(record.mode==='past_present_future'&&record.cards.length===3){
+      context=[
+        `在过去的位置，关注「${focus}」如何成为这件事的背景。回顾相关经历、形成的习惯与当时的选择，辨认哪些影响仍延续到现在。`,
+        `在现在的位置，先对照眼前的事实与感受，看看「${focus}」体现在哪一个具体环节。这张牌帮助你确认当下可以回应的部分。`,
+        `在未来的位置，「${focus}」是一个值得观察的发展方向。可以留意当下的做法是否支持这个方向，并随实际反馈调整下一步。`,
+      ][index];
+    }else if(record.mode==='situation_obstacle_advice'&&record.cards.length===3){
+      context=[
+        `在现状的位置，用「${focus}」梳理当前最主要的需要、可用力量或正在发生的变化，再与阻碍位置的提示一起看。`,
+        `在阻碍的位置，${picked.is_reversed?`「${focus}」是需要先处理的卡点`:motif?obstacle_lenses[motif[0]]:`需要留意「${focus}」在当前处境中的限制`}。对照实际情况，判断问题出在投入的程度、时机还是使用方式。`,
+        `在建议的位置，把「${focus}」转成可执行的回应。先选一个与当前阻碍直接相关、自己能够掌握的小步骤，观察效果再继续。`,
+      ][index];
+    }else if(record.mode==='daily'){
+      context=`作为今日提示，可以从今天的一次对话、一项任务或一个日常选择中观察「${focus}」。把注意力放在能够实践和回顾的小事上。`;
+    }else{
+      context=`自由探索中的这张牌提供「${focus}」这个观察角度。它没有预设的时间或因果牌位，可以先对照同一个问题，再与其他已翻开的牌比较相互补充或需要权衡的地方。`;
+    }
+    return {
+      slot_id:picked.slot_id,position:picked.position,name:card.name_zh,orientation,
+      keywords:picked.is_reversed?card.keywords_reversed:card.keywords_upright,focus,
+      general:topics?.general??(picked.is_reversed?card.meaning_reversed:card.meaning_upright),context,
+      advice:topics?.advice??`${focus}。${motif?themes[motif[0]].bridge:'选择一个能够落实的小步骤，并根据实际反馈调整。'}`,
+      reflection:motif?reflections[motif[0]]:'这张牌的哪个提示最贴近眼前的实际情况？我可以如何回应？',
+      overview:card.meaning_details?.overview,symbolism:card.meaning_details?.symbolism,love:topics?.love,career:topics?.career,
+    };
+  });
+}
 
 export function interpret_reading(record: Reading, catalog: Dataset['cards']): ReadingInterpretation | null {
-  // Do not disclose any unrevealed card through the combined interpretation.
+  // 综合解读必须等全部翻开，避免文字提前泄露尚未揭晓的牌。
   if(record.cards.length<2||!record.cards.every(picked=>record.revealed.includes(picked.slot_id)))return null;
   const cards=record.cards.map(picked=>{
     const card=catalog.find(current=>current.id===picked.card.id)??picked.card;
@@ -157,11 +214,18 @@ export function interpret_reading(record: Reading, catalog: Dataset['cards']): R
     connection+='这一组全部为逆位，可以先观察内在感受、推进受阻或需要重新调整的部分，再决定行动节奏。';
   }
 
-  // Only a named advice position has priority; free draws do not acquire invented roles.
+  // 仅明确的建议牌位优先提供行动；自由抽取不能被赋予不存在的牌位。
   const action=record.mode==='situation_obstacle_advice'&&cards.length===3?third:
     cards.find(card=>card.theme==='burden'||card.theme==='care')??cards[cards.length-1];
   const topics=action.card.meaning_details?.[action.picked.is_reversed?'reversed':'upright'];
   const advice=topics?.advice??`${action.focus}。${action.theme?themes[action.theme].bridge:'结合这张牌的提示，选一个能够落实的小步骤。'}`;
   const next_step=`可以先从${action.ref}的提示着手：${advice}${record.question.trim()?'再回到你写下的问题，检查这一步是否回应了你最在意的部分。':'选一件眼下能够落实的事，并观察它如何影响整组牌共同关注的问题。'}`;
-  return {sections:[{title:'整体脉络',text:storyline},{title:'牌与牌的联系',text:connection},{title:'可以尝试的一步',text:next_step}]};
+  const positioned=(record.mode==='past_present_future'||record.mode==='situation_obstacle_advice')&&cards.length===3;
+  return {sections:[
+    {title:'整体脉络',text:storyline,
+      paragraphs:positioned?storyline.split('；'):[`这 ${cards.length} 张牌可以并读为一组提醒：`,'自由抽取没有预设的时间或因果牌位，可以把这些角度对照同一件事来理解。'],
+      items:positioned?undefined:cards.map(card=>`${card.ref}：${card.focus}`)},
+    {title:'牌与牌的联系',text:connection},
+    {title:'可以尝试的一步',text:next_step},
+  ]};
 }

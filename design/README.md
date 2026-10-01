@@ -3,7 +3,7 @@
 ## 当前版本 · 对称沙漏
 
 生成日期：2026-09-30。使用内置 image_gen 工具（imagegen 技能），参考用户提供的单张沙漏图制作。
-源图：[hourglass-card-back.png](hourglass-card-back.png)。网站使用长边 1200 px 的哈希命名 WebP，数据版本 `2026.09.30.4`。
+源图：[hourglass-card-back.png](hourglass-card-back.png)。网站使用长边 1200 px 的哈希命名 WebP，当前数据版本 `2026.10.01.1`；该牌背最初随 `2026.09.30.4` 发布。
 视觉：深紫黑底、粉金线描、紫色水晶、粉色沙堆、植物、星点和细边框。上下沙漏腔室以旋转对称构图呼应；不包含太阳、月亮或月相。
 
 ### 对称沙漏生成提示词
@@ -31,3 +31,9 @@ Use case: stylized-concept. Asset type: a single finished TAROT CARD BACK image 
 ## 生成提示词
 
 Use case: stylized-concept. Asset type: production tarot card BACK illustration for a vintage parchment tarot website. Primary request: design an original Sun and Moon tarot card back, replacing the old supplied card back. Input images: image 1 and image 2 are STYLE REFERENCES ONLY, showing aged parchment and detailed hand-colored woodcut tarot art; do not copy their characters or their printed titles. Create a flat full-bleed portrait rectangular card artwork, aspect ratio 3:5, straight-on with absolutely no perspective, no table, no outside scene, no mockup. Rich antique gold engraved celestial Sun and crescent Moon forms within a precise ornamental double frame, worn cream parchment edge, deep warm umber and midnight muted indigo interior, fine stars and etched orbital lines. Composition must be elegant and legible when reduced to small playing cards. Exactly 180-degree rotationally symmetric layout: repeated identical Sun-and-Moon medallions toward both ends, celestial ornament joining them, equal margins. Match the supplied faces' vintage ink hatching and parchment character but create a calmer original celestial pattern. No letters, numbers, text, brand, watermark, or card front labels. Opaque full card background. The illustration itself fills the entire image edge to edge.
+
+## 分享图 · 中世纪油画风格
+
+当前实现日期：2026-10-01。背景文件为 [medieval-oil-v1.png](../frontend/src/export/assets/medieval-oil-v1.png)，效果预览见 [share-oil-preview.png](share-oil-preview.png)。背景由 Vite 打包并随应用壳离线缓存，不属于 media 清单。
+
+Canvas 使用古金棕或勃艮第红色调，叠加暗角、金线边饰与衬线标题，保留原始牌面及逆位方向。内容组件可以勾选和排序，标题、落款、日期、牌位与边饰可调整；问题与笔记每次默认关闭。输出宽度 1200 px，按字体测量长文，高度最多 13000 px。实现见 `frontend/src/export/share.ts` 和 `share-content.ts`，交互见 `frontend/src/features/ShareComposer.tsx`。

@@ -1,7 +1,7 @@
 import { expect, test } from 'vitest';
 import dataset from '../../../backend/content/cards.json';
 import type { Card, Dataset, Mode, Reading } from './types';
-import { interpret_reading } from './interpretation';
+import { interpret_cards, interpret_reading } from './interpretation';
 
 const catalog=(dataset as Dataset).cards;
 function reading(ids=['major_strength','cups_king','major_empress'],mode:Mode='situation_obstacle_advice'):Reading{
@@ -82,4 +82,51 @@ test('all 78 catalog cards have concise connecting motifs in both orientations',
       expect(narrative).not.toContain(reversed?card.meaning_reversed:card.meaning_upright);
     }
   }
+});
+
+test('individual guidance reveals only flipped slots and follows their saved orientation',()=>{
+  const record=reading();record.revealed=['slot_1','slot_1','stale-slot'];
+  const cards=interpret_cards(record,catalog);
+  expect(cards).toHaveLength(1);
+  expect(cards[0].name).toBe('圣杯国王');expect(cards[0].orientation).toBe('逆位');
+  expect(cards[0].general).toBe(record.cards[1].card.meaning_details!.reversed.general);
+  expect(cards[0].love).toBe(record.cards[1].card.meaning_details!.reversed.love);
+  expect(cards[0].career).toBe(record.cards[1].card.meaning_details!.reversed.career);
+  expect(cards[0].advice).toBe(record.cards[1].card.meaning_details!.reversed.advice);
+  record.revealed=[];expect(interpret_cards(record,catalog)).toEqual([]);
+});
+
+test('individual guidance distinguishes an upright obstacle from advice without changing its meaning',()=>{
+  const record=reading(['major_strength','major_strength','major_strength']);
+  record.cards.forEach(card=>{card.is_reversed=false;});
+  const cards=interpret_cards(record,catalog);
+  expect(cards[0].context).toContain('现状的位置');
+  expect(cards[1].context).toContain('阻碍的位置');
+  expect(cards[1].context).toContain('一味维持平衡或压住感受');
+  expect(cards[2].context).toContain('建议的位置');
+  expect(new Set(cards.map(card=>card.general)).size).toBe(1);
+});
+
+test('single daily guidance and free guidance do not invent future or advice positions',()=>{
+  const daily=reading(['major_fool'],'daily');
+  expect(interpret_cards(daily,catalog)[0].context).toContain('作为今日提示');
+  const free=reading(['major_fool'],'free');
+  const guidance=interpret_cards(free,catalog)[0];
+  expect(guidance.context).toContain('没有预设的时间或因果牌位');
+  expect(guidance.context).not.toMatch(/未来的位置|建议的位置/);
+  const chronological=reading(['major_fool','major_death','major_star'],'past_present_future');
+  expect(interpret_cards(chronological,catalog)[2].context).toContain('随实际反馈调整');
+});
+
+test('detailed guidance refreshes legacy text without modifying saved readings and falls back for unknown cards',()=>{
+  const record=reading();
+  record.cards=record.cards.map(picked=>({...picked,card:{...picked.card,meaning_details:undefined,meaning_upright:'旧摘要'}}));
+  const before=structuredClone(record);
+  expect(interpret_cards(record,catalog)[0].general).toBe(catalog.find(card=>card.id==='major_strength')!.meaning_details!.upright.general);
+  expect(record).toEqual(before);
+  record.cards[0].card={...record.cards[0].card,id:'unknown',name_zh:'另一副牌',meaning_upright:'已有的正位摘要'};
+  const guidance=interpret_cards(record,[])[0];
+  expect(guidance.general).toBe('已有的正位摘要');expect(guidance.overview).toBeUndefined();
+  expect(guidance.advice).toBeTruthy();expect(guidance.reflection).toBeTruthy();
+  expect(Object.values(guidance).filter(value=>typeof value==='string').join(' ')).not.toMatch(/undefined|NaN/);
 });

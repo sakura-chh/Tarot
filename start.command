@@ -28,4 +28,4 @@ fi
   done
 ) &
 print '保持这个窗口打开；按 Control+C 停止网站。'
-exec .venv/bin/python -m uvicorn app.main:app --app-dir backend --host 127.0.0.1 --port 8000 --reload --no-access-log
+exec .venv/bin/python -m uvicorn app.main:app --app-dir backend --host 127.0.0.1 --port 8000 --reload --no-access-log --no-proxy-headers --no-server-header

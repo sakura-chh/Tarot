@@ -1,4 +1,5 @@
 import type { BundleState, Dataset, Reading, Settings, Work } from '../domain/types';
+import { DEFAULT_SETTINGS } from '../domain/types';
 import { daily_key } from '../domain/rules';
 
 let connection: Promise<IDBDatabase> | undefined;
@@ -26,7 +27,21 @@ export async function put_value<T>(store: string,key: string,value: T): Promise<
     tx.oncomplete=()=>resolve();tx.onerror=()=>reject(tx.error);tx.onabort=()=>reject(tx.error);
   });
 }
-export const get_settings = ()=>get_value<Settings>('meta','settings');
+function volume_percent(value:unknown,fallback:number){
+  return typeof value==='number'&&Number.isFinite(value)?Math.max(0,Math.min(100,Math.round(value))):fallback;
+}
+export async function get_settings():Promise<Settings|undefined>{
+  const value=await get_value<Settings>('meta','settings');
+  if(!value)return undefined;
+  // 为没有音量字段的旧设置补齐默认值，并限制损坏偏好的数值范围。
+  return {...DEFAULT_SETTINGS,...value,
+    reversed_enabled:typeof value.reversed_enabled==='boolean'?value.reversed_enabled:DEFAULT_SETTINGS.reversed_enabled,
+    reversed_probability:volume_percent(value.reversed_probability,DEFAULT_SETTINGS.reversed_probability),
+    music_enabled:typeof value.music_enabled==='boolean'?value.music_enabled:DEFAULT_SETTINGS.music_enabled,
+    effects_enabled:typeof value.effects_enabled==='boolean'?value.effects_enabled:DEFAULT_SETTINGS.effects_enabled,
+    music_volume:volume_percent(value.music_volume,DEFAULT_SETTINGS.music_volume),
+    effects_volume:volume_percent(value.effects_volume,DEFAULT_SETTINGS.effects_volume)};
+}
 export const save_settings = (value: Settings)=>put_value('meta','settings',value);
 export const get_dataset = ()=>get_value<Dataset>('meta','dataset');
 export const save_dataset = (value: Dataset)=>put_value('meta','dataset',value);
@@ -48,7 +63,7 @@ export async function list_readings(): Promise<Reading[]> {
 
 export async function commit_reading(record: Reading,work: Work): Promise<Reading> {
   const db=await open_db();return new Promise((resolve,reject)=>{
-    // One write transaction serializes concurrent tabs and fixes the daily card before revealing.
+    // 同一写事务串行处理多标签页提交：先固定每日结果，再允许翻牌。
     const tx=db.transaction(['readings','daily_results','meta'],'readwrite');let result=record;
     const finish=(chosen: Reading)=>{
       result=chosen;
@@ -76,6 +91,7 @@ export async function update_reading(record: Reading): Promise<void> {
 
 export async function clear_data(kind: 'history'|'all',id?: string): Promise<void> {
   const db=await open_db();return new Promise((resolve,reject)=>{
+    // 清空历史保留每日结果；清空个人数据仍保留公共数据集和离线包状态。
     const stores=kind==='all'?['readings','daily_results','meta']:['readings'];
     const tx=db.transaction(stores,'readwrite');
     if(id) tx.objectStore('readings').delete(id);else for(const name of stores){

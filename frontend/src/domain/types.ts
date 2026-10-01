@@ -15,8 +15,8 @@ export interface Dataset {
   card_back_url: string; audio: { music: string; shuffle: string; flip: string };
   cards: Card[]; spreads: Spread[];
 }
-export interface Settings { reversed_enabled: boolean; reversed_probability: number; music_enabled: boolean; effects_enabled: boolean }
-export const DEFAULT_SETTINGS: Settings = { reversed_enabled: true, reversed_probability: 50, music_enabled: true, effects_enabled: true };
+export interface Settings { reversed_enabled: boolean; reversed_probability: number; music_enabled: boolean; effects_enabled: boolean; music_volume: number; effects_volume: number }
+export const DEFAULT_SETTINGS: Settings = { reversed_enabled: true, reversed_probability: 50, music_enabled: true, effects_enabled: true, music_volume: 28, effects_volume: 55 };
 export interface Slot { slot_id: string; card_id: string; is_reversed: boolean }
 export interface Session {
   session_id: string; request_id: string; source: 'server' | 'offline';

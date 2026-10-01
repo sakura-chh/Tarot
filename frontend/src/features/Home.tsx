@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { ArrowRight, ArrowUpRight, Sun, Waves, Compass, Sparkles, BookOpen } from 'lucide-react';
 import type { Card, Dataset, Mode } from '../domain/types';
+import { play_effect } from '../audio/controller';
 
 const mode_icons=[Sun,Waves,Compass,Sparkles];
 const mode_descriptions:Record<Mode,string>={daily:'给今天一个提醒',past_present_future:'过去 · 现在 · 未来',situation_obstacle_advice:'现状 · 阻碍 · 建议',free:'按直觉选 1–10 张'};
@@ -13,13 +14,14 @@ function HeroCard({initial,back,on_next,index}:{initial:Card;back:string;on_next
   async function flip(){
     if(busy.current||!rotor.current)return;
     const next=on_next();
+    play_effect('flip');
     if(window.matchMedia('(prefers-reduced-motion: reduce)').matches){set_card(next);return;}
     busy.current=true;set_flipping(true);
     const image=new Image();image.src=next.images.display_url;
     try{
       const first=rotor.current.animate([{transform:'rotateY(0deg)'},{transform:'rotateY(180deg)'}],{duration:360,easing:'cubic-bezier(.4,0,.2,1)',fill:'forwards'});
       animation.current=first;
-      // Swap the face only while its back is showing, after the next artwork is decoded.
+      // 下一张图解码后才在牌背朝外时换图，避免翻转中闪白或提前露出新牌。
       await Promise.all([first.finished,image.decode().catch(()=>{})]);
       set_card(next);
       const second=rotor.current.animate([{transform:'rotateY(180deg)'},{transform:'rotateY(360deg)'}],{duration:400,easing:'cubic-bezier(.2,.65,.3,1)',fill:'forwards'});
@@ -51,7 +53,7 @@ export function Home({data,on_mode,on_library,has_work}:{data:Dataset;on_mode:(m
       <div className="hero-copy"><div className="hero-kicker">留一点时间给自己</div>
         <h1>在纸间，<br/>与自己相遇。</h1>
         <p className="hero-description">翻一张牌，换一个看待此刻的角度。</p>
-        <div className="hero-actions"><button className="button" onClick={()=>on_mode('daily')}>开始今日探索 <ArrowRight size={18}/></button><button className="text-button" onClick={on_library}>浏览卡牌 <ArrowUpRight size={15}/></button></div>
+        <div className="hero-actions"><button className="button hero-explore-button" onClick={()=>on_mode('daily')}>开始今日探索 <ArrowRight size={18}/></button><button className="text-button" onClick={on_library}>浏览卡牌 <ArrowUpRight size={15}/></button></div>
       </div>
       <div className="hero-visual" role="group" aria-label="点击塔罗牌，翻转换一张">
         <div className="hero-cards">{hero_cards.map((card,i)=><HeroCard key={i} initial={card} back={data.card_back_url} index={i} on_next={()=>next_card(i)}/>)}</div>

@@ -42,10 +42,12 @@ def shuffled_slots(
     probability: int,
     random_int: Callable[[int], int] = secrets.randbelow,
 ) -> list[dict]:
+    # Fisher–Yates 每步从未处理区间均匀选取，默认使用系统安全随机源。
     ids = [card["id"] for card in cards]
     for i in range(len(ids) - 1, 0, -1):
         j = random_int(i + 1)
         ids[i], ids[j] = ids[j], ids[i]
+    # 方向在会话创建时固定，选牌与翻牌只读取它，不能再次抽样。
     return [
         {
             "slot_id": f"slot-{i:02}",

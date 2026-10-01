@@ -11,17 +11,47 @@ from fastapi.staticfiles import StaticFiles
 from .repository import ApiError, Repository
 from .rules import search_cards
 from .schemas import DrawRequest
-from .settings import DB_PATH, FRONTEND_PATH, MEDIA_PATH, ROOT
+from .security import SecurityMiddleware
+from .settings import (
+    ALLOWED_HOSTS,
+    ALLOWED_ORIGINS,
+    API_DOCS,
+    DB_PATH,
+    FRONTEND_PATH,
+    MEDIA_PATH,
+    ROOT,
+)
 
 
-def create_app(db_path: Path = DB_PATH):
+def create_app(
+    db_path: Path = DB_PATH,
+    *,
+    allowed_hosts=ALLOWED_HOSTS,
+    allowed_origins=ALLOWED_ORIGINS,
+    limiter=None,
+    api_docs=API_DOCS,
+):
     @asynccontextmanager
     async def lifespan(application: FastAPI):
         dataset = json.loads((ROOT / "backend/content/cards.json").read_text())
         application.state.repo = Repository(db_path, dataset)
         yield
 
-    application = FastAPI(title="纸境 · Tarot API", version="0.1.0", lifespan=lifespan)
+    application = FastAPI(
+        title="纸境 · Tarot API",
+        version="0.1.0",
+        lifespan=lifespan,
+        docs_url="/docs" if api_docs else None,
+        redoc_url=None,
+        openapi_url="/openapi.json" if api_docs else None,
+    )
+    application.add_middleware(
+        SecurityMiddleware,
+        allowed_hosts=allowed_hosts,
+        allowed_origins=allowed_origins,
+        limiter=limiter,
+        api_docs=api_docs,
+    )
 
     @application.exception_handler(ApiError)
     async def api_error(_request: Request, error: ApiError):
@@ -29,6 +59,7 @@ def create_app(db_path: Path = DB_PATH):
             {"error": {"code": error.code, "message": error.message}}, status_code=error.status
         )
 
+    # 对外只返回统一错误，避免把原始请求参数或内部校验细节带入响应。
     @application.exception_handler(RequestValidationError)
     async def validation_error(_request: Request, _error: RequestValidationError):
         return JSONResponse(
@@ -56,7 +87,7 @@ def create_app(db_path: Path = DB_PATH):
         q: str = Query("", max_length=100),
         arcana: Literal["major", "minor"] | None = None,
         suit: Literal["swords", "wands", "pentacles", "cups"] | None = None,
-        dataset_version: str | None = None,
+        dataset_version: str | None = Query(None, min_length=1, max_length=64),
     ):
         repo = application.state.repo
         repo.check_version(dataset_version)
@@ -68,7 +99,7 @@ def create_app(db_path: Path = DB_PATH):
         }
 
     @application.get("/api/v1/cards/{card_id}")
-    def card(card_id: str, dataset_version: str | None = None):
+    def card(card_id: str, dataset_version: str | None = Query(None, min_length=1, max_length=64)):
         repo = application.state.repo
         repo.check_version(dataset_version)
         result = next((c for c in repo.cards() if c["id"] == card_id), None)
@@ -77,7 +108,7 @@ def create_app(db_path: Path = DB_PATH):
         return result
 
     @application.get("/api/v1/spreads")
-    def spreads(dataset_version: str | None = None):
+    def spreads(dataset_version: str | None = Query(None, min_length=1, max_length=64)):
         application.state.repo.check_version(dataset_version)
         return application.state.repo.dataset["spreads"]
 
@@ -103,10 +134,14 @@ def create_app(db_path: Path = DB_PATH):
     def frontend(path: str):
         if path.startswith(("api/", "media/")):
             return JSONResponse({"error": {"code": "NOT_FOUND", "message": "接口不存在。"}}, 404)
+        # 解析真实路径后再检查目录边界，阻止路径穿越和符号链接越界。
         target = (FRONTEND_PATH / path).resolve()
         if target.is_relative_to(FRONTEND_PATH.resolve()) and target.is_file():
             headers = {"Cache-Control": "no-cache"} if path in ("sw.js", "index.html") else {}
             return FileResponse(target, headers=headers)
+        # 只有已知页面回退到入口；缺失脚本或私有文件应返回真实 404。
+        if path not in ("", "draw", "cards", "history", "settings"):
+            return JSONResponse({"error": {"code": "NOT_FOUND", "message": "资源不存在。"}}, 404)
         if (FRONTEND_PATH / "index.html").exists():
             return FileResponse(FRONTEND_PATH / "index.html", headers={"Cache-Control": "no-cache"})
         return JSONResponse({"message": "请先运行 npm --prefix frontend run build"}, 503)

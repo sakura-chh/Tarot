@@ -22,7 +22,7 @@ export function useTarot(data: Dataset){
   })();return ()=>{live=false;};},[data.deck_id]);
   useEffect(()=>{
     if(reading?.mode!=='daily')return;
-    // A page left open over midnight must not continue treating yesterday as today's result.
+    // 页面跨午夜保持打开或从后台返回时，不能继续把昨天的牌当作今日结果。
     const check_day=()=>{if(reading.local_date!==local_date()){
       work_ref.current=null;set_work(null);set_reading(null);
       void save_work(null).catch(()=>set_error('每日状态未保存，请重试。'));
@@ -38,13 +38,14 @@ export function useTarot(data: Dataset){
     const cards=await Promise.all(current.selected.map(async(id,index)=>{
       const slot=current.slots.find(s=>s.slot_id===id)!,card=data.cards.find(c=>c.id===slot.card_id)!;
       let display_blob:Blob|undefined;
-      try{const response=await fetch(card.images.display_url,{signal:AbortSignal.timeout(3000)});if(response.ok)display_blob=await response.blob();}catch{/* Save the fixed result even if its full-size image is temporarily unavailable. */}
+      try{const response=await fetch(card.images.display_url,{signal:AbortSignal.timeout(3000)});if(response.ok)display_blob=await response.blob();}catch{/* 高清图暂时不可用也要保存已固定的结果，避免重试时重抽。 */}
       return {card,slot_id:id,is_reversed:slot.is_reversed,position:spread.positions[index]??`第 ${index+1} 张`,display_blob};
     }));
     const record:Reading={id:crypto.randomUUID(),session_id:current.session_id,mode:current.mode,deck_id:data.deck_id,
       dataset_version:current.dataset_version,source:current.source,question:current.question,notes:'',
       created_at:new Date().toISOString(),local_date:local_date(),timezone:Intl.DateTimeFormat().resolvedOptions().timeZone,
       settings_snapshot:current.settings_snapshot,cards,revealed:[]};
+    // 以事务接受的记录为准；另一标签页可能已先提交同一天的每日结果。
     const accepted=await commit_reading(record,current);set_reading(accepted);
     assign_work({...current,phase:'revealing',reading_id:accepted.id});
     set_reading_entry(value=>value+1);

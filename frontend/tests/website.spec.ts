@@ -1,8 +1,134 @@
 import { expect, test } from '@playwright/test';
+import { createHash } from 'node:crypto';
 import type { Locator } from '@playwright/test';
 import type { Card, Dataset, Reading, Work } from '../src/domain/types';
 
 declare global{interface Window{test_audio:HTMLAudioElement[]}}
+declare global{interface Window{share_texts:string[];share_rotations:number[]}}
+
+async function choose_option(control:Locator,label:string){
+  await control.click();
+  await control.page().getByRole('option',{name:label,exact:true}).click();
+}
+
+test('oil painting share composer exports one, three and ten cards with selectable ordered components',async({page,request,context},info)=>{
+  const catalog:{items:Card[]}=await (await request.get('/api/v1/cards')).json();
+  const errors:string[]=[];page.on('pageerror',error=>errors.push(error.message));
+  await page.goto('/cards');await expect(page.locator('.library-card')).toHaveCount(78);
+  for(const count of [1,3,10]){
+    const now=new Date().toISOString(),record:Reading={
+      id:`share-${count}`,session_id:`session-${count}`,source:'offline',mode:count===3?'situation_obstacle_advice':'free',
+      deck_id:'provided-deck-v1',dataset_version:'2026.09.30.4',created_at:now,local_date:now.slice(0,10),timezone:'Asia/Shanghai',
+      question:'PRIVATE_QUESTION_MARKER：我如何回应当前的变化？',notes:'PRIVATE_NOTE_MARKER：保留给自己的想法。\n'+'把时间留给需要的事。'.repeat(70),
+      settings_snapshot:{reversed_enabled:true,reversed_probability:50},
+      cards:catalog.items.slice(0,count).map((card,index)=>({card,slot_id:`share-slot-${index}`,position:count===3?['现状','阻碍','建议'][index]:`第 ${index+1} 张`,is_reversed:index%2===1})),
+      revealed:Array.from({length:count},(_,index)=>`share-slot-${index}`),
+    };
+    await page.evaluate(async record=>new Promise<void>((resolve,reject)=>{
+      const request=indexedDB.open('paper-tarot',1);request.onsuccess=()=>{
+        const db=request.result,tx=db.transaction('readings','readwrite'),store=tx.objectStore('readings');store.clear();store.put(record,record.id);
+        tx.oncomplete=()=>{db.close();resolve();};tx.onerror=()=>reject(tx.error);
+      };request.onerror=()=>reject(request.error);
+    }),record);
+    await page.goto('/history');await page.locator('.history-main').click();
+    await page.getByRole('button',{name:'导出分享图',exact:true}).click();
+    const dialog=page.getByRole('dialog',{name:'带走这次相遇'});
+    await expect(dialog.getByRole('checkbox',{name:/^包含我的问题/})).not.toBeChecked();
+    await expect(dialog.getByRole('checkbox',{name:/^包含笔记/})).not.toBeChecked();
+    if(count===1)await expect(dialog.getByRole('checkbox',{name:/^牌阵综合解读/})).toBeDisabled();
+    await page.evaluate(()=>{
+      window.share_texts=[];window.share_rotations=[];
+      const fill=CanvasRenderingContext2D.prototype.fillText,rotate=CanvasRenderingContext2D.prototype.rotate;
+      CanvasRenderingContext2D.prototype.fillText=function(value,x,y,width){window.share_texts.push(value);if(width===undefined)fill.call(this,value,x,y);else fill.call(this,value,x,y,width);};
+      CanvasRenderingContext2D.prototype.rotate=function(angle){window.share_rotations.push(angle);rotate.call(this,angle);};
+    });
+    await dialog.getByRole('button',{name:'生成预览',exact:true}).click();
+    const preview=dialog.getByRole('img',{name:'分享图预览'});await expect(preview).toBeVisible();
+    const dimensions=await preview.evaluate((el:HTMLImageElement)=>({width:el.naturalWidth,height:el.naturalHeight}));
+    expect(dimensions.width).toBe(1200);expect(dimensions.height).toBeGreaterThan(900);expect(dimensions.height).toBeLessThan(13000);
+    const rendered=await page.evaluate(()=>window.share_texts.join('\n'));
+    expect(rendered).not.toContain('PRIVATE_QUESTION_MARKER');expect(rendered).not.toContain('PRIVATE_NOTE_MARKER');
+    expect(rendered).toContain('牌中的提醒');
+    for(const picked of record.cards)expect(rendered).toContain(picked.card.name_zh);
+    expect(await page.evaluate(()=>window.share_rotations.filter(angle=>angle===Math.PI).length)).toBe(Math.floor(count/2));
+    expect(await dialog.evaluate(el=>el.scrollWidth<=el.clientWidth)).toBeTruthy();
+    const download=page.waitForEvent('download');await dialog.getByRole('link',{name:'下载 PNG'}).click();
+    await (await download).saveAs(`test-results/share-oil-${count}-${info.project.name}.png`);
+    if(count===3){
+      await dialog.getByRole('textbox',{name:'分享图标题'}).fill('此刻的内在旅程');
+      await dialog.getByRole('textbox',{name:'分享图落款'}).fill('秋日 · 私人手记');
+      await choose_option(dialog.getByRole('combobox',{name:'分享图色调'}),'勃艮第红 · 油画');
+      await choose_option(dialog.getByRole('combobox',{name:'分享图排布'}),'手稿长卷');
+      for(const name of ['包含我的问题','包含笔记','牌位解读','牌阵综合解读','行动建议'])await dialog.getByRole('checkbox',{name:new RegExp(`^${name}`)}).check();
+      await dialog.getByRole('checkbox',{name:/^核心牌义/}).uncheck();await dialog.getByRole('checkbox',{name:'显示日期',exact:true}).uncheck();
+      for(let i=0;i<5;i++)await dialog.getByRole('button',{name:'上移包含我的问题',exact:true}).click();
+      await expect(dialog.locator('.share-module.enabled').first()).toHaveAttribute('data-module','question');
+      await expect(dialog.getByRole('link',{name:'下载 PNG'})).toHaveCount(0);
+      await page.evaluate(()=>{window.share_texts=[];window.share_rotations=[];});
+      await dialog.getByRole('button',{name:'生成预览',exact:true}).click();await expect(preview).toBeVisible();
+      const changed=await page.evaluate(()=>window.share_texts.join('\n'));
+      expect(changed).toContain('此刻的内在旅程');expect(changed).toContain('秋日 · 私人手记');
+      expect(changed).toContain('PRIVATE_QUESTION_MARKER');expect(changed).toContain('PRIVATE_NOTE_MARKER');
+      expect(changed).toContain('牌阵综合解读');expect(changed).toContain('可以实践的一步');expect(changed).not.toContain('牌中的提醒');expect(changed).not.toContain(record.local_date);
+      expect(changed.indexOf('我此刻的问题')).toBeLessThan(changed.indexOf('本次相遇的牌'));
+      const custom=page.waitForEvent('download');await dialog.getByRole('link',{name:'下载 PNG'}).click();await (await custom).saveAs(`test-results/share-custom-${info.project.name}.png`);
+      await dialog.getByRole('button',{name:'关闭',exact:true}).focus();await page.keyboard.press('Shift+Tab');await expect(dialog.getByRole('link',{name:'下载 PNG'})).toBeFocused();
+      await page.screenshot({path:`test-results/share-composer-${info.project.name}.png`,animations:'disabled'});
+    }
+    if(count===10){
+      await page.evaluate(async()=>{await navigator.serviceWorker.ready;});
+      await dialog.getByRole('checkbox',{name:/^卡牌画廊/}).uncheck();await dialog.getByRole('checkbox',{name:/^核心牌义/}).uncheck();
+      await expect(dialog.getByRole('button',{name:'生成预览',exact:true})).toBeDisabled();
+      await dialog.getByRole('checkbox',{name:/^包含笔记/}).check();
+      await context.setOffline(true);await dialog.getByRole('button',{name:'生成预览',exact:true}).click();await expect(preview).toBeVisible();await context.setOffline(false);
+    }
+    await dialog.getByRole('button',{name:'关闭',exact:true}).click();
+    await page.getByRole('button',{name:'导出分享图',exact:true}).click();
+    await expect(page.getByRole('checkbox',{name:/^包含我的问题/})).not.toBeChecked();await expect(page.getByRole('checkbox',{name:/^包含笔记/})).not.toBeChecked();
+    await page.getByRole('button',{name:'关闭',exact:true}).click();
+  }
+  expect(errors).toEqual([]);
+});
+
+test('glass dropdowns filter cards, preserve modal focus and apply setup and history choices',async({page},info)=>{
+  await page.goto('/cards');
+  const category=page.getByRole('combobox',{name:'卡牌类别'}),suit=page.getByRole('combobox',{name:'卡牌花色'});
+  await category.focus();await category.press('ArrowDown');
+  await expect(page.getByRole('option',{name:'全部类别'})).toHaveAttribute('aria-selected','true');
+  await category.press('End');await category.press('Enter');
+  await expect(category).toHaveText('小阿尔卡那');
+  await expect(page.locator('.library-card')).toHaveCount(56);
+  await choose_option(suit,'星币');await expect(page.locator('.library-card')).toHaveCount(14);
+  await suit.click();await expect(page.getByRole('listbox',{name:'卡牌花色'})).toBeVisible();
+  await page.getByRole('textbox',{name:'搜索卡牌'}).click();
+  await expect(suit).toHaveAttribute('aria-expanded','false');
+  await page.getByRole('button',{name:'全站卡牌查询'}).click();
+  const dialog=page.getByRole('dialog',{name:'寻找一张牌'}),filter=dialog.getByRole('combobox',{name:'卡牌类别'});
+  await filter.click();
+  const menu=page.getByRole('listbox',{name:'卡牌类别'});
+  await expect(menu).toBeInViewport({ratio:1});
+  expect(await menu.evaluate(el=>getComputedStyle(el).backdropFilter)).not.toBe('none');
+  await page.screenshot({path:`test-results/glass-dropdown-${info.project.name}.png`,animations:'disabled'});
+  await filter.press('Escape');await expect(menu).not.toBeVisible();await expect(dialog).toBeVisible();
+  await filter.press('Enter');await filter.press('ArrowDown');await filter.press('Enter');
+  await expect(dialog.locator('.library-card')).toHaveCount(22);await expect(filter).toBeFocused();
+  await filter.press('Tab');await expect(dialog.getByRole('combobox',{name:'卡牌花色'})).toBeFocused();
+  await filter.focus();await filter.press('Escape');await expect(dialog).not.toBeVisible();
+
+  await page.goto('/draw');await page.getByRole('button',{name:/自由探索/}).click();
+  const count=page.getByRole('combobox',{name:'抽取数量'});
+  await count.focus();await count.press('End');
+  await expect(page.getByRole('option',{name:'10 张',exact:true})).toBeInViewport({ratio:1});
+  await count.press('Home');await count.press('ArrowDown');await count.press('Enter');
+  await expect(count).toHaveText('2 张');
+  await expect(page.locator('.setup-form')).toContainText('2 张牌');
+  await page.goto('/history');
+  const history=page.getByRole('combobox',{name:'历史模式'});
+  await choose_option(history,'每日一牌');await expect(history).toHaveText('每日一牌');
+  await choose_option(history,'自由探索');await expect(history).toHaveText('自由探索');
+  await choose_option(history,'所有记录');await expect(history).toHaveText('所有记录');
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth)).toBeTruthy();
+});
 
 async function click_fan_card(card:Locator){
   // Pick the exposed outer corner in the card's rotated coordinate system.
@@ -44,12 +170,22 @@ test('card library switches meaning detail independently and opens every card in
   await expect(detail.locator('.meaning-sections section').nth(2).locator('p')).toHaveText(details.upright.general);
   expect(await modal.evaluate(el=>el.scrollWidth<=el.clientWidth)).toBeTruthy();
   await modal.screenshot({path:`test-results/full-meaning-${info.project.name}.png`,animations:'disabled'});
+  const artwork=detail.locator('.detail-art');
+  const artwork_before=(await artwork.boundingBox())!;
+  const header_before=(await modal.locator('.modal-header').boundingBox())!;
   const source=detail.locator('.meaning-source a');
   await source.scrollIntoViewIfNeeded();
   await expect(source).toBeVisible();
   await expect(source).toHaveAttribute('href',card.meaning_source!.url);
   await expect(source).toHaveAttribute('rel','noopener noreferrer');
   await expect(modal.getByRole('button',{name:'关闭',exact:true})).toBeInViewport({ratio:1});
+  if(info.project.name==='desktop'){
+    expect(await detail.locator('.detail-copy').evaluate(el=>el.scrollTop)).toBeGreaterThan(0);
+    expect(await modal.evaluate(el=>el.scrollTop)).toBe(0);
+    expect((await artwork.boundingBox())!.y).toBeCloseTo(artwork_before.y,1);
+    expect((await modal.locator('.modal-header').boundingBox())!.y).toBeCloseTo(header_before.y,1);
+    await expect(artwork).toBeInViewport({ratio:1});
+  }
   await modal.screenshot({path:`test-results/full-meaning-bottom-${info.project.name}.png`,animations:'disabled'});
   await modes.getByRole('button',{name:'精简释义'}).click();
   await expect(directions.getByRole('button',{name:'正位牌义'})).toHaveAttribute('aria-pressed','true');
@@ -69,16 +205,49 @@ test('card library switches meaning detail independently and opens every card in
   await expect(page.locator('.meaning-sections')).toHaveCount(0);
 });
 
-test('older card data falls back to concise meanings when full details or browser storage are unavailable',async({page})=>{
+test('desktop card details fit a short window and return to the searchable library',async({page},info)=>{
+  test.skip(info.project.name==='mobile','Desktop has a fixed artwork column.');
+  await page.setViewportSize({width:1440,height:500});
+  await page.goto('/');
+  await page.getByRole('button',{name:'全站卡牌查询',exact:true}).click();
+  await page.getByRole('textbox',{name:'搜索卡牌',exact:true}).fill('星币十');
+  await page.locator('.modal .library-card').click();
+  const modal=page.getByRole('dialog',{name:'星币十',exact:true});
+  await modal.getByRole('button',{name:'完整释义',exact:true}).click();
+  const artwork=modal.locator('.detail-art');
+  const before=(await artwork.boundingBox())!;
+  await modal.locator('.meaning-source a').scrollIntoViewIfNeeded();
+  await expect(modal.locator('.meaning-source a')).toBeVisible();
+  const after=(await artwork.boundingBox())!;
+  const panel=(await modal.boundingBox())!;
+  expect(after.y).toBeCloseTo(before.y,1);
+  expect(after.y+after.height).toBeLessThan(panel.y+panel.height);
+  await expect(artwork).toBeInViewport({ratio:1});
+  await modal.screenshot({path:`test-results/fixed-artwork-short-${info.project.name}.png`,animations:'disabled'});
+  await modal.getByRole('button',{name:'返回搜索',exact:true}).click();
+  await expect(page.getByRole('dialog',{name:'寻找一张牌',exact:true})).toBeVisible();
+  await expect(page.getByRole('textbox',{name:'搜索卡牌',exact:true})).toHaveValue('星币十');
+  await page.getByRole('textbox',{name:'搜索卡牌',exact:true}).fill('');
+  await expect(page.locator('.modal .library-card')).toHaveCount(78);
+  await page.getByRole('textbox',{name:'搜索卡牌',exact:true}).fill('星币十');
+  await expect(page.locator('.modal .library-card')).toHaveCount(1);
+  await page.locator('.modal .library-card').click();
+  await expect(page.getByRole('dialog',{name:'星币十',exact:true})).toBeVisible();
+});
+
+test('older card data falls back to concise meanings when full details or browser storage are unavailable',async({page,request})=>{
   const errors:string[]=[];
   page.on('pageerror',error=>errors.push(error.message));
   await page.addInitScript(()=>Object.defineProperty(window,'localStorage',{get(){throw new DOMException('Storage is blocked','SecurityError');}}));
-  await page.route('**/media/**/dataset-*.json',async route=>{
-    const response=await route.fetch();
-    const dataset:Dataset=await response.json();
-    for(const card of dataset.cards){delete card.meaning_details;delete card.meaning_source;}
-    await route.fulfill({response,json:dataset});
-  });
+  const manifest=await (await request.get('/api/v1/resources/manifest')).json();
+  const dataset:Dataset=await (await request.get(manifest.dataset_url)).json();
+  for(const card of dataset.cards){delete card.meaning_details;delete card.meaning_source;}
+  const body=JSON.stringify(dataset),item=manifest.items.find((item:{url:string})=>item.url===manifest.dataset_url);
+  manifest.total_bytes+=Buffer.byteLength(body)-item.bytes;
+  item.bytes=Buffer.byteLength(body);item.sha256=createHash('sha256').update(body).digest('hex');
+  // An older published bundle still needs its matching integrity manifest.
+  await page.route('**/api/v1/resources/manifest',route=>route.fulfill({json:manifest}));
+  await page.route('**/media/**/dataset-*.json',route=>route.fulfill({body,contentType:'application/json'}));
   await page.goto('/cards');
   await page.locator('.library-card').first().click();
   await page.getByRole('button',{name:'完整释义',exact:true}).click();
@@ -91,6 +260,86 @@ test('older card data falls back to concise meanings when full details or browse
   await expect(page.getByRole('button',{name:'精简释义',exact:true})).toHaveAttribute('aria-pressed','true');
   await page.getByRole('button',{name:'完整释义',exact:true}).click();
   await expect(page.getByText('此卡暂无完整释义，先查看精简牌义。', {exact:true})).toBeVisible();
+  expect(errors).toEqual([]);
+});
+
+test('confirmed readings keep all cards and flip controls on the first screen before and after reveal',async({page,request},info)=>{
+  const catalog:{items:Card[]}=await (await request.get('/api/v1/cards')).json();
+  const errors:string[]=[];page.on('pageerror',error=>errors.push(error.message));
+  await page.goto('/cards');await expect(page.locator('.library-card')).toHaveCount(78);
+  if(info.project.name==='desktop')await page.setViewportSize({width:1440,height:650});
+  for(const count of [1,3,6,10]){
+    const now=new Date().toISOString();
+    const record:Reading={
+      id:`screen-reading-${count}`,session_id:`screen-session-${count}`,source:'offline',mode:'free',
+      deck_id:'provided-deck-v1',dataset_version:'2026.09.30.4',created_at:now,local_date:now.slice(0,10),timezone:'Asia/Shanghai',
+      question:count===6?'想从这次探索中获得什么提醒？'.repeat(12):'',notes:'',
+      settings_snapshot:{reversed_enabled:true,reversed_probability:50},
+      cards:catalog.items.slice(0,count).map((card,index)=>({card,slot_id:`screen-${index}`,position:`第 ${index+1} 张`,is_reversed:index%2===1})),revealed:[],
+    };
+    const work:Work={
+      session_id:record.session_id,request_id:`screen-request-${count}`,source:record.source,dataset_version:record.dataset_version,
+      deck_id:record.deck_id,mode:record.mode,count,settings_snapshot:record.settings_snapshot,created_at:now,
+      slots:catalog.items.map((card,index)=>({slot_id:`screen-${index}`,card_id:card.id,is_reversed:index%2===1})),
+      selected:record.cards.map(card=>card.slot_id),phase:'revealing',question:record.question,reading_id:record.id,group:0,
+    };
+    await page.evaluate(async({record,work})=>new Promise<void>((resolve,reject)=>{
+      const request=indexedDB.open('paper-tarot',1);
+      request.onsuccess=()=>{
+        const db=request.result,tx=db.transaction(['readings','meta'],'readwrite');
+        tx.objectStore('readings').put(record,record.id);tx.objectStore('meta').put(work,'work');
+        tx.oncomplete=()=>{db.close();resolve();};tx.onerror=()=>reject(tx.error);
+      };request.onerror=()=>reject(request.error);
+    }),{record,work});
+    await page.goto('/draw');await expect(page.locator('.reading-card')).toHaveCount(count);
+    await expect(page.locator('.reading-guidance')).toHaveCount(0);
+    await expect(page.locator('.reading-stage')).toBeInViewport({ratio:1});
+    await expect(page.getByRole('button',{name:'选择抽牌模式',exact:true})).toBeInViewport({ratio:1});
+    await expect(page.getByRole('button',{name:'全部翻开',exact:true})).toBeInViewport({ratio:1});
+    expect(await page.evaluate(()=>scrollY)).toBeLessThan(2);
+    await page.screenshot({path:`test-results/reading-first-screen-${count}-${info.project.name}.png`,animations:'disabled'});
+    if(count===3){
+      await page.getByRole('button',{name:'翻开第 1 张',exact:true}).click();
+      await expect(page.locator('.card-guidance')).toHaveCount(1);
+      await expect(page.locator('.reading-guidance')).toContainText(record.cards[0].card.name_zh);
+      await expect(page.locator('.reading-guidance')).not.toContainText(record.cards[1].card.name_zh);
+      await expect(page.getByRole('region',{name:'牌阵综合解读'})).toHaveCount(0);
+    }
+    await page.getByRole('button',{name:'全部翻开',exact:true}).click();
+    await expect(page.locator('.flip-card.is-flipped')).toHaveCount(count);
+    await expect(page.locator('.reading-stage')).toBeInViewport({ratio:1});
+    for(const card of await page.locator('.flip-card').all())await expect(card).toBeInViewport({ratio:1});
+    for(const button of await page.getByRole('button',{name:'查看牌义',exact:true}).all())await expect(button).toBeInViewport({ratio:1});
+    expect(await page.evaluate(()=>scrollY)).toBeLessThan(2);
+    expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBeTruthy();
+    if(info.project.name==='mobile'){
+      const bottom=await page.locator('.reading-stage').evaluate(el=>el.getBoundingClientRect().bottom);
+      const nav=await page.locator('.mobile-nav').boundingBox();expect(bottom).toBeLessThan(nav!.y);
+    }
+    await page.screenshot({path:`test-results/reading-revealed-${count}-${info.project.name}.png`,animations:'disabled'});
+    if(count===10&&info.project.name==='desktop'){
+      await page.setViewportSize({width:1000,height:700});
+      await expect(page.locator('.reading-stage')).toBeInViewport({ratio:1});
+      for(const card of await page.locator('.flip-card').all())await expect(card).toBeInViewport({ratio:1});
+      expect(await page.evaluate(()=>scrollY)).toBeLessThan(2);
+      await page.setViewportSize({width:1440,height:650});
+      await expect(page.locator('.reading-stage')).toBeInViewport({ratio:1});
+    }
+    await page.getByRole('button',{name:'查看牌义',exact:true}).first().click();
+    await expect(page.getByRole('dialog')).toBeVisible();await page.getByRole('button',{name:'关闭',exact:true}).click();
+    await expect(page.locator('.card-guidance')).toHaveCount(count);
+    const first=page.locator('.card-guidance').first();
+    await expect(first).toContainText(record.cards[0].card.meaning_details!.upright.general);
+    await expect(first).toContainText(record.cards[0].card.meaning_details!.upright.advice);
+    await first.locator('summary').click();
+    await expect(first.getByText(record.cards[0].card.meaning_details!.symbolism,{exact:true})).toBeVisible();
+    await expect(first.getByText(record.cards[0].card.meaning_details!.upright.love,{exact:true})).toBeVisible();
+    if(count>1)await expect(page.locator('.card-guidance').nth(1)).toContainText(record.cards[1].card.meaning_details!.reversed.general);
+    if(count===3){
+      await first.evaluate(el=>el.scrollIntoView({block:'start'}));
+      await page.screenshot({path:`test-results/detailed-guidance-${info.project.name}.png`,animations:'disabled'});
+    }
+  }
   expect(errors).toEqual([]);
 });
 
@@ -211,6 +460,12 @@ test('navigation compresses on pointer and keyboard press, rebounds on release a
 
 test('home cards flip independently to different artwork and the mobile invitation fits above the dock',async({page},info)=>{
   const errors:string[]=[];page.on('pageerror',error=>errors.push(error.message));
+  await page.addInitScript(()=>{
+    const original=window.Audio,list:HTMLAudioElement[]=[];
+    Object.defineProperty(window,'test_audio',{value:list});
+    window.Audio=class extends original{constructor(src?:string){super(src);list.push(this);}};
+  });
+  const flip_count=()=>page.evaluate(()=>window.test_audio.filter(audio=>audio.src.endsWith('/flip.wav')).length);
   await page.goto('/');
   const cards=page.locator('.hero-card');
   await expect(cards).toHaveCount(3);
@@ -232,6 +487,7 @@ test('home cards flip independently to different artwork and the mobile invitati
     await expect(card).toHaveAttribute('aria-busy','true');
     await expect(card).toBeDisabled();
     await expect(card).toHaveAttribute('aria-busy','false');
+    await expect.poll(flip_count).toBe(i+1);
     const next=await card.locator('.hero-card-face img').getAttribute('src');
     expect(next).not.toBe(old);expect(others).not.toContain(next);
     expect(await card.locator('.hero-card-rotor').evaluate(el=>el.getAnimations().length)).toBe(0);
@@ -240,6 +496,8 @@ test('home cards flip independently to different artwork and the mobile invitati
   const first=cards.first(),old=await first.getAttribute('aria-label');
   await first.focus();await page.keyboard.press('Enter');
   await expect(first).not.toHaveAttribute('aria-label',old!);
+  await expect.poll(flip_count).toBe(4);
+  await expect.poll(()=>page.evaluate(()=>window.test_audio.find(audio=>audio.src.endsWith('/flip.wav'))?.readyState??0)).toBeGreaterThanOrEqual(2);
   expect(await first.locator('.hero-card-rotor').evaluate(el=>el.getAnimations().length)).toBe(0);
   expect(await page.locator('.sky-meteor').first().evaluate(el=>getComputedStyle(el).display)).toBe('none');
   await page.emulateMedia({reducedMotion:'no-preference'});
@@ -260,6 +518,13 @@ test('home cards flip independently to different artwork and the mobile invitati
     }
   }
   expect(errors).toEqual([]);
+  const nav=page.locator('.site-header nav:visible, .mobile-nav:visible');
+  await nav.getByRole('button',{name:'设置',exact:true}).click();
+  await page.getByRole('switch',{name:'洗牌与翻牌音效',exact:true}).uncheck();
+  await nav.getByRole('button',{name:'首页',exact:true}).click();
+  await cards.first().click();
+  await expect(cards.first()).toHaveAttribute('aria-busy','false');
+  expect(await flip_count()).toBe(4);
   await page.getByRole('button',{name:'开始今日探索',exact:true}).click();
   await expect(page).toHaveURL(/\/draw/);
 });
@@ -278,7 +543,7 @@ test('compact home entries and visible mode buttons support switching before, du
     await expect(option).toHaveAttribute('aria-pressed','true');
     await expect(modes.locator('[aria-pressed="true"]')).toHaveCount(1);
   }
-  await page.getByLabel('抽取数量').selectOption('2');
+  await choose_option(page.getByRole('combobox',{name:'抽取数量'}),'2 张');
   await page.getByRole('textbox').fill('这周可以关注什么？');
   await page.locator('.draw-setup').screenshot({path:`test-results/draw-mode-picker-${info.project.name}.png`});
   await page.getByRole('button',{name:'开始洗牌',exact:true}).click();
@@ -296,7 +561,7 @@ test('compact home entries and visible mode buttons support switching before, du
   await page.getByRole('button',{name:'选择抽牌模式',exact:true}).click();
   await expect(modes).toBeVisible();
   await modes.getByRole('button',{name:/自由探索/}).click();
-  await page.getByLabel('抽取数量').selectOption('2');
+  await choose_option(page.getByRole('combobox',{name:'抽取数量'}),'2 张');
   await page.getByRole('button',{name:'快速抽取',exact:true}).click();
   await expect(page.locator('.reading-card')).toHaveCount(2);
 });
@@ -332,6 +597,38 @@ test('supplied background music loops, follows the music toggle and stays a sing
   await page.getByRole('button',{name:'关闭背景音乐',exact:true}).click();
 });
 
+test('music and effect volume sliders apply immediately and persist after reopening',async({page},info)=>{
+  await page.addInitScript(()=>{
+    const original=window.Audio,list:HTMLAudioElement[]=[];
+    Object.defineProperty(window,'test_audio',{value:list});
+    window.Audio=class extends original{constructor(src?:string){super(src);list.push(this);}};
+  });
+  await page.goto('/settings');
+  const music_volume=page.getByRole('slider',{name:'背景音乐音量',exact:true});
+  const effects_volume=page.getByRole('slider',{name:'音效音量',exact:true});
+  await expect(music_volume).toHaveValue('28');
+  await expect(effects_volume).toHaveValue('55');
+  await music_volume.focus();await music_volume.press('Home');
+  await expect.poll(()=>page.evaluate(()=>window.test_audio.find(audio=>audio.src.includes('/music-'))?.volume)).toBe(0);
+  await music_volume.press('End');await music_volume.press('ArrowLeft');
+  await expect(music_volume).toHaveValue('99');
+  await expect.poll(()=>page.evaluate(()=>window.test_audio.find(audio=>audio.src.includes('/music-'))?.volume)).toBe(.99);
+  await effects_volume.focus();await effects_volume.press('Home');await effects_volume.press('ArrowRight');
+  await expect(effects_volume).toHaveValue('1');
+  await expect(effects_volume).toHaveAttribute('aria-valuetext','1%');
+  const nav=page.locator('.site-header nav:visible, .mobile-nav:visible');
+  await nav.getByRole('button',{name:'首页',exact:true}).click();
+  await page.locator('.hero-card').first().click();
+  await expect.poll(()=>page.evaluate(()=>window.test_audio.find(audio=>audio.src.endsWith('/flip.wav'))?.volume)).toBe(.01);
+  await nav.getByRole('button',{name:'设置',exact:true}).click();
+  await page.reload();
+  await expect(music_volume).toHaveValue('99');
+  await expect(effects_volume).toHaveValue('1');
+  await expect.poll(()=>page.evaluate(()=>window.test_audio.find(audio=>audio.src.includes('/music-'))?.volume)).toBe(.99);
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+  await page.locator('.settings-panel').filter({has:music_volume}).screenshot({path:`test-results/volume-settings-${info.project.name}.png`,animations:'disabled'});
+});
+
 test('manual selection survives global search and refresh; reveal and export', async ({ page }, info) => {
   const errors: string[] = [];
   page.on('pageerror', error => errors.push(error.message));
@@ -359,6 +656,11 @@ test('manual selection survives global search and refresh; reveal and export', a
   expect(await page.locator('.fan-position').first().evaluate(el=>getComputedStyle(el).animationName)).toBe('fan-open');
   await page.locator('.selection-deck').screenshot({path:`test-results/poker-opening-${info.project.name}.png`});
   await expect(page.getByRole('group',{name:'完整 78 张洗好的塔罗牌'})).toHaveAttribute('aria-busy','false');
+  await expect(page.locator('.selection-deck')).toBeInViewport({ratio:1});
+  await expect(page.getByRole('button',{name:'更换模式',exact:true})).toBeInViewport({ratio:1});
+  await expect(page.getByRole('button',{name:'重新抽牌',exact:true})).toBeInViewport({ratio:1});
+  expect(await page.evaluate(()=>scrollY)).toBeLessThan(2);
+  await page.screenshot({path:`test-results/selection-first-screen-${info.project.name}.png`,animations:'disabled'});
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBeTruthy();
   await click_fan_card(page.getByRole('button', { name: '牌位 1', exact: true }));
   await click_fan_card(page.getByRole('button', { name: '牌位 78', exact: true }));
@@ -430,7 +732,7 @@ test('daily result remains fixed after settings, history deletion and reload', a
   await expect(page.getByRole('region',{name:'牌阵综合解读'})).toHaveCount(0);
   await expect(page.locator('.flip-card.is-flipped')).toHaveCount(1);
   const first = await page.locator('.reading-copy h3').textContent();
-  const orientation = await page.locator('.orientation').textContent();
+  const orientation = await page.locator('.reading-grid .orientation').textContent();
   const nav = page.locator('.site-header nav:visible, .mobile-nav:visible');
   await nav.getByRole('button', { name: '设置', exact: true }).click();
   await page.getByRole('spinbutton', { name: '逆位概率' }).fill('100');
@@ -442,7 +744,7 @@ test('daily result remains fixed after settings, history deletion and reload', a
   await expect(page.locator('.reading-copy h3')).toHaveText(first!);
   await page.reload();
   await expect(page.locator('.reading-copy h3')).toHaveText(first!);
-  await expect(page.locator('.orientation')).toHaveText(orientation!);
+  await expect(page.locator('.reading-grid .orientation')).toHaveText(orientation!);
   await page.clock.setSystemTime(new Date(Date.now()+86400000));
   await page.evaluate(()=>window.dispatchEvent(new Event('focus')));
   await expect(page.getByRole('group',{name:'抽牌模式',exact:true})).toBeVisible();
@@ -476,7 +778,7 @@ test('verified offline pack allows reopening, lookup, quick draw and export offl
   const nav = page.locator('.site-header nav:visible, .mobile-nav:visible');
   await nav.getByRole('button', { name: '首页', exact: true }).click();
   await page.locator('.mode-card').last().click();
-  await page.getByLabel('抽取数量').selectOption('10');
+  await choose_option(page.getByRole('combobox',{name:'抽取数量'}),'10 张');
   await page.getByRole('spinbutton', { name: '逆位概率' }).fill('100');
   await page.getByRole('button', { name: '快速抽取' }).click();
   await expect(page.locator('.reading-card')).toHaveCount(10);
@@ -486,7 +788,7 @@ test('verified offline pack allows reopening, lookup, quick draw and export offl
   await page.getByRole('button', { name: '全部翻开' }).scrollIntoViewIfNeeded();
   await page.screenshot({path:'test-results/offline-reading.png'});
   await page.getByRole('button', { name: '全部翻开' }).click();
-  await expect(page.locator('.orientation')).toHaveText(Array(10).fill('逆位'));
+  await expect(page.locator('.reading-grid .orientation')).toHaveText(Array(10).fill('逆位'));
   if(info.project.name==='mobile')expect((await page.locator('.reading-grid').boundingBox())!.height).toBeLessThan(1350);
   const interpretation=page.getByRole('region',{name:'牌阵综合解读'});
   await expect(interpretation).toBeVisible();
@@ -507,7 +809,7 @@ test('verified offline pack allows reopening, lookup, quick draw and export offl
 test('two free cards show a combined explanation only after the last individual flip',async({page})=>{
   await page.goto('/');
   await page.locator('.mode-card').last().click();
-  await page.getByLabel('抽取数量').selectOption('2');
+  await choose_option(page.getByRole('combobox',{name:'抽取数量'}),'2 张');
   await page.getByRole('spinbutton',{name:'逆位概率'}).fill('0');
   await page.getByRole('button',{name:'快速抽取'}).click();
   await expect(page.locator('.reading-card')).toHaveCount(2);
@@ -521,7 +823,7 @@ test('two free cards show a combined explanation only after the last individual 
   for(const name of await page.locator('.reading-copy h3').allTextContents())await expect(interpretation).toContainText(`${name}（正位）`);
   await expect(interpretation).not.toContainText('未来位置');
   await page.getByRole('button',{name:'再次抽牌'}).click();
-  await page.getByLabel('抽取数量').selectOption('1');
+  await choose_option(page.getByRole('combobox',{name:'抽取数量'}),'1 张');
   await page.getByRole('button',{name:'快速抽取'}).click();
   await page.getByRole('button',{name:'全部翻开'}).click();
   await expect(page.locator('.reading-card')).toHaveCount(1);
@@ -529,12 +831,15 @@ test('two free cards show a combined explanation only after the last individual 
 });
 
 test('all 78 arc cards fit in view, are reachable, lift on selection and support keyboard and reduced motion',async({page},info)=>{
+  if(info.project.name==='desktop')await page.setViewportSize({width:1440,height:650});
   await page.emulateMedia({reducedMotion:'reduce'});
   await page.goto('/');
   await page.locator('.mode-card').nth(1).click();
   await page.getByRole('button',{name:'开始洗牌'}).click();
   const deck=page.getByRole('group',{name:'完整 78 张洗好的塔罗牌'});
   await expect(deck).toHaveAttribute('aria-busy','false');
+  await expect(page.locator('.selection-deck')).toBeInViewport({ratio:1});
+  expect(await page.evaluate(()=>scrollY)).toBeLessThan(2);
   await expect(page.locator('.back-card')).toHaveCount(78);
   expect(await deck.locator('.fan-position').first().evaluate(el=>getComputedStyle(el).animationName)).toBe('none');
   await deck.evaluate(el=>el.scrollIntoView({block:'center'}));
@@ -579,11 +884,22 @@ test('all 78 arc cards fit in view, are reachable, lift on selection and support
   await expect(page.locator('.back-card.chosen')).toHaveCount(2);
   await click_fan_card(page.getByRole('button',{name:'牌位 3',exact:true}));
   await expect(page.locator('.back-card.chosen')).toHaveCount(3);
-  await page.getByRole('button',{name:'取消第3张',exact:true}).click();
+  await page.getByRole('button',{name:'取消第3张',exact:true}).getByRole('img',{name:'已选牌'}).click();
+  await expect(page.getByRole('button',{name:'牌位 3',exact:true})).toHaveAttribute('aria-pressed','false');
   await expect(page.locator('.selected-tray .filled')).toHaveCount(2);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBeTruthy();
   await page.locator('.selection-deck').screenshot({path:`test-results/arc-deck-${info.project.name}.png`,animations:'disabled'});
   await page.reload();
   await expect(page.locator('.back-card.chosen')).toHaveCount(2);
   await expect(deck).toHaveAttribute('aria-busy','false');
+  page.once('dialog',dialog=>dialog.dismiss());
+  await page.getByRole('button',{name:'重新抽牌',exact:true}).click();
+  await expect(page.locator('.back-card.chosen')).toHaveCount(2);
+  page.once('dialog',dialog=>dialog.accept());
+  await page.getByRole('button',{name:'重新抽牌',exact:true}).click();
+  await expect(deck).toHaveAttribute('aria-busy','false');
+  await expect(page.locator('.back-card.chosen')).toHaveCount(0);
+  await expect(page.locator('.selection-mode-status')).toContainText('时间之流 · 已选 0 / 3');
+  await expect(page.locator('.selection-deck')).toBeInViewport({ratio:1});
+  expect(await page.evaluate(()=>scrollY)).toBeLessThan(2);
 });

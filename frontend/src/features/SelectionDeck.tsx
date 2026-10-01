@@ -17,7 +17,12 @@ export function SelectionDeck({work,back,on_select,handoff}:{work:Work;back:stri
     const measure=()=>{
       const width=element.clientWidth,pull=width<600?18:36;
       // Reserve room outside the arc so selected cards remain visible at either end.
-      const radius=Math.min(420,width/2-pull-14);
+      const top=element.getBoundingClientRect().top+window.scrollY;
+      const status_height=element.parentElement?.querySelector('.fan-status')?.getBoundingClientRect().height??50;
+      const bottom_space=window.innerWidth<=800?110:18;
+      const available=window.innerHeight-top-status_height-bottom_space;
+      // Fit the fan below its heading and above mobile navigation without clipping cards.
+      const radius=Math.min(420,width/2-pull-14,Math.max(60,(available-pull-36)/1.135));
       const card_width=Math.min(88,radius*.27),card_height=card_width*5/3;
       const center_y=radius+pull+14,height=center_y+card_width/2+22;
       const values={
@@ -27,8 +32,8 @@ export function SelectionDeck({work,back,on_select,handoff}:{work:Work;back:stri
       };
       for(const [key,value] of Object.entries(values))element.style.setProperty(key,`${value}px`);
     };
-    measure();const observer=new ResizeObserver(measure);observer.observe(element);
-    return()=>observer.disconnect();
+    measure();const observer=new ResizeObserver(measure);observer.observe(element);window.addEventListener('resize',measure);
+    return()=>{observer.disconnect();window.removeEventListener('resize',measure);};
   },[]);
   useLayoutEffect(()=>{
     const origin=handoff?.current;if(handoff)handoff.current=null;
